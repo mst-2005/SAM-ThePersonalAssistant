@@ -211,15 +211,27 @@ def build_project(
         except Exception as e:
             errors.append(f"Failed to generate {fname}: {e}")
     
-    # Step 3: Run Verification Test
+    # Step 3: Run Verification Test & Deliverable Builders
+    # Automatically execute generate_presentation.py or generate_report.py if created
+    for gen_script in base_path.rglob("generate_*.py"):
+        try:
+            subprocess.run(
+                [sys.executable, str(gen_script)],
+                cwd=str(gen_script.parent),
+                capture_output=True,
+                timeout=30,
+            )
+        except Exception:
+            pass
+
     test_output = "No test script found."
-    test_files = list(base_path.glob("test_*.py")) + list(base_path.glob("*_test.py"))
+    test_files = list(base_path.rglob("test_*.py")) + list(base_path.rglob("*_test.py"))
     for test_file in test_files:
         if test_file.exists():
             try:
                 proc = subprocess.run(
                     [sys.executable, str(test_file)],
-                    cwd=str(base_path),
+                    cwd=str(test_file.parent),
                     capture_output=True,
                     text=True,
                     timeout=20,

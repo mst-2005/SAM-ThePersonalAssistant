@@ -1022,6 +1022,17 @@ class CameraCaptureDialog(QDialog):
         self._session.setRecorder(self._recorder)
         self._session.setImageCapture(self._image_capture)
         self._session.setVideoOutput(self._preview)
+        # Notify immediately when photo file is saved to disk
+        try:
+            self._image_capture.imageSaved.connect(
+                lambda _id, path: self._status.setText(f"Photo saved: {Path(path).name}")
+            )
+        except Exception:
+            pass
+        try:
+            self._recorder.recorderStateChanged.connect(self._on_recorder_state_changed)
+        except Exception:
+            pass
         # Some packaged Qt Multimedia backends expose the PyQt signal wrapper
         # without the matching C++ meta-object signal. Avoid connecting it:
         # that mismatch raises during dialog construction on macOS.
@@ -1044,19 +1055,29 @@ class CameraCaptureDialog(QDialog):
     def _take_photo(self):
         path = self._capture_dir() / f"photo-{int(time.time())}.jpg"
         self._image_capture.captureToFile(str(path))
-        self._status.setText(f"Saving {path.name}…")
+        self._status.setText(f"Capturing {path.name}…")
+
+    def _on_recorder_state_changed(self, state):
+        from PyQt6.QtMultimedia import QMediaRecorder
+        if state == QMediaRecorder.RecorderState.StoppedState:
+            self._record_button.setText("Record video with sound")
+            saved_name = getattr(self, "_record_path", None)
+            if saved_name:
+                self._status.setText(f"Video saved: {Path(saved_name).name}")
+            else:
+                self._status.setText("Camera ready")
 
     def _toggle_video(self):
         from PyQt6.QtMultimedia import QMediaRecorder
         if self._recorder.recorderState() == QMediaRecorder.RecorderState.RecordingState:
             self._recorder.stop()
             self._record_button.setText("Record video with sound")
-            self._status.setText("Finalizing video with microphone audio…")
+            self._status.setText("Finalizing video…")
             return
         path = self._capture_dir() / f"video-{int(time.time())}.mp4"
+        self._record_path = str(path)
         self._recorder.setOutputLocation(self._QUrl.fromLocalFile(str(path)))
         self._recorder.record()
-        self._record_path = path
         self._record_button.setText("Stop video recording")
         self._status.setText("Recording video with microphone sound…")
         from PyQt6.QtCore import QTimer
@@ -1159,6 +1180,7 @@ class MainWindow(QMainWindow):
     _browser_sig    = pyqtSignal(str)
     _vscode_sig     = pyqtSignal(str)
     _queue_sig      = pyqtSignal(str)
+    _mute_sig       = pyqtSignal(bool)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1168,6 +1190,7 @@ class MainWindow(QMainWindow):
         self._quick_drawer: QWidget | None = None
         self.on_text_command   = None
         self.on_interrupt      = None
+        self.on_wake_trigger   = None
         self._muted            = False
 
         # 2. Config & Theme
@@ -1252,9 +1275,13 @@ class MainWindow(QMainWindow):
         self._browser_sig.connect(self._on_browser_status)
         self._vscode_sig.connect(self._on_vscode_status)
         self._queue_sig.connect(self._on_queue_add)
+        self._mute_sig.connect(self.set_muted)
 
-        # Shortcuts
+        # Shortcuts (supports F4/F5 and Option+F4/Option+F5 on Mac)
         QShortcut(QKeySequence("F4"), self).activated.connect(self._toggle_mute)
+        QShortcut(QKeySequence("Alt+F4"), self).activated.connect(self._toggle_mute)
+        QShortcut(QKeySequence("F5"), self).activated.connect(self._trigger_wake)
+        QShortcut(QKeySequence("Alt+F5"), self).activated.connect(self._trigger_wake)
         QShortcut(QKeySequence("F11"), self).activated.connect(self._toggle_fullscreen)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._do_interrupt)
 
@@ -1739,7 +1766,12 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     def _toggle_mute(self):
-        self._muted = not self._muted
+        self.set_muted(not self._muted)
+
+    def set_muted(self, muted: bool):
+        if self._muted == muted:
+            return
+        self._muted = muted
         self.hud.muted = self._muted
         self._style_mute_btn()
         
@@ -1785,6 +1817,12 @@ class MainWindow(QMainWindow):
         if self.on_interrupt:
             self.on_interrupt()
         self._log.append_log("SYS: Execution interrupted.")
+
+    def _trigger_wake(self):
+        if self._muted:
+            self.set_muted(False)
+        if getattr(self, "on_wake_trigger", None):
+            self.on_wake_trigger()
 
     def _apply_state(self, state: str):
         self.hud.state = state
@@ -1844,6 +1882,9 @@ class SamUI:
     def set_wake_state(self, state: str):
         self._win._wake_sig.emit(state)
 
+    def set_muted(self, muted: bool):
+        self._win._mute_sig.emit(muted)
+
     def set_current_task(self, task: str):
         self._win._task_sig.emit(task)
 
@@ -1881,6 +1922,22 @@ class SamUI:
     @on_interrupt.setter
     def on_interrupt(self, fn):
         self._win.on_interrupt = fn
+
+    @property
+    def on_mic_toggle(self):
+        return getattr(self._win, "on_mic_toggle", None)
+
+    @on_mic_toggle.setter
+    def on_mic_toggle(self, fn):
+        self._win.on_mic_toggle = fn
+
+    @property
+    def on_wake_trigger(self):
+        return getattr(self._win, "on_wake_trigger", None)
+
+    @on_wake_trigger.setter
+    def on_wake_trigger(self, fn):
+        self._win.on_wake_trigger = fn
 
     def run(self):
         self._app.exec()

@@ -55,9 +55,10 @@ def autonomous_task(parameters: dict = None, **kwargs) -> str:
             try:
                 from actions.phone_notifier import call_user_phone, _load_config
                 cfg = _load_config()
+                salutation = cfg.get("salutation", "Ma'am")
                 if cfg.get("user_phone_number"):
                     call_msg = (
-                        f"Good day sir. This is SAM calling with an update on your overnight project: "
+                        f"Good day {salutation}. This is SAM calling with an update on your overnight project: "
                         f"'{goal}'. The autonomous build has finished. "
                         f"{summary.get('completed', 0)} out of {summary.get('total', 0)} milestones were executed successfully."
                     )
@@ -72,8 +73,15 @@ def autonomous_task(parameters: dict = None, **kwargs) -> str:
     t = threading.Thread(target=run_agent, daemon=True, name=f"Agent-{agent.task_id}")
     t.start()
     
+    salutation = "Ma'am"
+    try:
+        from core.llm_client import _load_config
+        salutation = _load_config().get("salutation", "Ma'am")
+    except Exception:
+        pass
+
     return (
-        f"Overnight autonomous project initiated with ID '{agent.task_id}', sir. "
+        f"Overnight autonomous project initiated with ID '{agent.task_id}', {salutation}. "
         f"Goal: '{goal}'. The agent is planning milestones and executing them in the background. "
         f"You can query progress anytime with 'background monitor'."
     )

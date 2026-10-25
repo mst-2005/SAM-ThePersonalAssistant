@@ -382,8 +382,16 @@ def call_llm_text(
             choices = data.get("choices") or []
             if not choices:
                 return ""
-            return (choices[0].get("message", {}).get("content") or "").strip()
-        return (data.get("message", {}).get("content") or "").strip()
+            msg = choices[0].get("message", {})
+            text = msg.get("content") or msg.get("reasoning_content") or ""
+        else:
+            msg = data.get("message", {})
+            text = msg.get("content") or msg.get("thinking") or ""
+        text = text.strip()
+        if "<think>" in text:
+            import re
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        return text
 
     try:
         resp = requests.post(endpoint, json=payload, timeout=timeout)

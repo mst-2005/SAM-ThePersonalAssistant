@@ -57,6 +57,16 @@ _APP_ALIASES: dict[str, dict[str, str]] = {
     "instagram":          {"Windows": "Instagram",               "Darwin": "Instagram",            "Linux": "firefox"},
     "tiktok":             {"Windows": "TikTok",                  "Darwin": "TikTok",               "Linux": "firefox"},
     "notion":             {"Windows": "Notion",                  "Darwin": "Notion",               "Linux": "notion"},
+    "moodle":             {"Windows": "Moodle",                  "Darwin": "Moodle",               "Linux": "moodle"},
+    "m o o d l e":        {"Windows": "Moodle",                  "Darwin": "Moodle",               "Linux": "moodle"},
+    "model":              {"Windows": "Moodle",                  "Darwin": "Moodle",               "Linux": "moodle"},
+    "open model":         {"Windows": "Moodle",                  "Darwin": "Moodle",               "Linux": "moodle"},
+    "modelling":          {"Windows": "Moodle",                  "Darwin": "Moodle",               "Linux": "moodle"},
+    "notebooklm":         {"Windows": "https://notebooklm.google.com", "Darwin": "https://notebooklm.google.com", "Linux": "https://notebooklm.google.com"},
+    "notebook lm":        {"Windows": "https://notebooklm.google.com", "Darwin": "https://notebooklm.google.com", "Linux": "https://notebooklm.google.com"},
+    "notebook m":         {"Windows": "https://notebooklm.google.com", "Darwin": "https://notebooklm.google.com", "Linux": "https://notebooklm.google.com"},
+    "youtube":            {"Windows": "https://www.youtube.com", "Darwin": "https://www.youtube.com", "Linux": "https://www.youtube.com"},
+    "chatgpt":            {"Windows": "https://chatgpt.com",     "Darwin": "ChatGPT",              "Linux": "https://chatgpt.com"},
     "obsidian":           {"Windows": "Obsidian",                "Darwin": "Obsidian",             "Linux": "obsidian"},
     "capcut":             {"Windows": "CapCut",                  "Darwin": "CapCut",               "Linux": "capcut"},
     "steam":              {"Windows": "steam",                   "Darwin": "Steam",                "Linux": "steam"},
@@ -116,29 +126,79 @@ def _launch_windows(app_name: str) -> bool:
     return False
 
 
+def _find_installed_mac_app(target: str) -> str | None:
+    import os
+    import difflib
+    search_dirs = ["/Applications", "/System/Applications", os.path.expanduser("~/Applications")]
+    app_names = []
+    for d in search_dirs:
+        if os.path.isdir(d):
+            try:
+                for entry in os.listdir(d):
+                    if entry.endswith(".app"):
+                        app_names.append(entry[:-4])
+            except Exception:
+                pass
+    if not app_names:
+        return None
+
+    target_clean = target.lower().strip()
+    target_clean = re.sub(r"\b(?:the\s+app|the\s+application|app|application)\b", "", target_clean).strip()
+    target_compressed = target_clean.replace(" ", "").replace("-", "").replace(".", "")
+
+    # 1. Exact match (case insensitive)
+    for a in app_names:
+        if a.lower() == target_clean:
+            return a
+
+    # 2. Compressed match
+    for a in app_names:
+        a_compressed = a.lower().replace(" ", "").replace("-", "").replace(".", "")
+        if a_compressed == target_compressed:
+            return a
+
+    # 3. Substring match
+    for a in app_names:
+        if target_clean and (target_clean in a.lower() or a.lower() in target_clean):
+            return a
+
+    # 4. Fuzzy match with close threshold
+    comp_map = {a.lower().replace(" ", "").replace("-", "").replace(".", ""): a for a in app_names}
+    fuzzy_matches = difflib.get_close_matches(target_compressed, list(comp_map.keys()), n=1, cutoff=0.55)
+    if fuzzy_matches:
+        return comp_map[fuzzy_matches[0]]
+
+    return None
+
 def _launch_macos(app_name: str) -> bool:
+    # First resolve against actual installed apps on disk
+    resolved = _find_installed_mac_app(app_name)
+    targets_to_try = [resolved, app_name] if resolved else [app_name]
 
-    try:
-        result = subprocess.run(
-            ["open", "-a", app_name],
-            capture_output=True, timeout=8
-        )
-        if result.returncode == 0:
-            time.sleep(1.0)
-            return True
-    except Exception:
-        pass
+    for target in targets_to_try:
+        if not target:
+            continue
+        try:
+            result = subprocess.run(
+                ["open", "-a", target],
+                capture_output=True, timeout=8
+            )
+            if result.returncode == 0:
+                time.sleep(0.5)
+                return True
+        except Exception:
+            pass
 
-    try:
-        result = subprocess.run(
-            ["open", "-a", f"{app_name}.app"],
-            capture_output=True, timeout=8
-        )
-        if result.returncode == 0:
-            time.sleep(1.0)
-            return True
-    except Exception:
-        pass
+        try:
+            result = subprocess.run(
+                ["open", "-a", f"{target}.app"],
+                capture_output=True, timeout=8
+            )
+            if result.returncode == 0:
+                time.sleep(0.5)
+                return True
+        except Exception:
+            pass
 
     binary = shutil.which(app_name) or shutil.which(app_name.lower())
     if binary:
@@ -148,22 +208,10 @@ def _launch_macos(app_name: str) -> bool:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            time.sleep(1.0)
+            time.sleep(0.5)
             return True
         except Exception:
             pass
-
-    try:
-        import pyautogui
-        pyautogui.hotkey("command", "space")
-        time.sleep(0.6)
-        pyautogui.write(app_name, interval=0.05)
-        time.sleep(0.8)
-        pyautogui.press("enter")
-        time.sleep(1.5)
-        return True
-    except Exception as e:
-        print(f"[open_app] Spotlight failed: {e}")
 
     return False
 
@@ -257,6 +305,18 @@ def open_app(
 
     if player:
         player.write_log(f"[open_app] {app_name}")
+
+    # Check if target is a web URL (e.g. NotebookLM, YouTube)
+    if normalized.startswith("http://") or normalized.startswith("https://"):
+        try:
+            import webbrowser
+            webbrowser.open(normalized)
+            return f"Opened {app_name}."
+        except Exception as e:
+            if _SYSTEM == "Darwin":
+                subprocess.run(["open", normalized])
+                return f"Opened {app_name}."
+            return f"Failed to open web app: {e}"
 
     try:
         if launcher(normalized):

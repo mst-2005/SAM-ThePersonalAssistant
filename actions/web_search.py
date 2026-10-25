@@ -145,20 +145,35 @@ def _gemini_search(query: str) -> str:
     return text
 
 
+def _clean_query(query: str) -> str:
+    import re
+    cleaned = re.sub(r"^(?:what(?:'s|\s+is)?|tell\s+me|find|search(?:\s+for)?|give\s+me|show\s+me)\s+(?:the\s+)?", "", query, flags=re.I)
+    cleaned = re.sub(r"\b(?:please|can\s+you|could\s+you)\b", "", cleaned, flags=re.I)
+    cleaned = cleaned.strip(" ?.,!\n\t")
+    return cleaned or query
+
+
 def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
     try:
         from ddgs import DDGS
     except ImportError:
         from duckduckgo_search import DDGS
 
+    cleaned = _clean_query(query)
     results = []
-    with DDGS(timeout=2) as ddgs:
-        for r in ddgs.text(query, max_results=max_results):
-            results.append({
-                "title":   r.get("title",  ""),
-                "snippet": r.get("body",   ""),
-                "url":     r.get("href",   ""),
-            })
+    for q_attempt in ([cleaned, query] if cleaned != query else [cleaned]):
+        try:
+            with DDGS(timeout=8) as ddgs:
+                for r in ddgs.text(q_attempt, max_results=max_results):
+                    results.append({
+                        "title":   r.get("title",  ""),
+                        "snippet": r.get("body",   ""),
+                        "url":     r.get("href",   ""),
+                    })
+            if results:
+                break
+        except Exception as e:
+            print(f"[WebSearch] DDG text attempt failed for {q_attempt!r}: {e}")
     return results
 
 
@@ -169,10 +184,11 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
     except ImportError:
         from duckduckgo_search import DDGS
 
+    cleaned = _clean_query(query)
     results = []
     try:
-        with DDGS() as ddgs:
-            for r in ddgs.news(query, max_results=max_results):
+        with DDGS(timeout=8) as ddgs:
+            for r in ddgs.news(cleaned, max_results=max_results):
                 results.append({
                     "title":   r.get("title",  ""),
                     "snippet": r.get("body",   ""),
@@ -181,7 +197,7 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
                 })
     except Exception as e:
         print(f"[WebSearch] ⚠️ DDG news() failed ({e}) — falling back to text search")
-        results = _ddg_search(query, max_results=max_results)
+        results = _ddg_search(cleaned, max_results=max_results)
     return results
 
 
@@ -262,14 +278,19 @@ def _search(query: str) -> str:
     """Default search reads up to two public result pages, with snippets as fallback."""
     try:
         results = _web_scrape(query, max_results=2)
-        return _format_scraped(query, results) if results else "Web search is temporarily unavailable. Please try again shortly."
+        if results and any(r.get("content") or r.get("snippet") for r in results):
+            return _format_scraped(query, results)
     except Exception as e:
         print(f"[WebSearch] Page reading failed ({e}) — using search snippets...")
-        try:
-            results = _ddg_search(query, max_results=2)
-            return _format_ddg(query, results) if results else "Web search is temporarily unavailable. Please try again shortly."
-        except Exception:
-            return "Web search is temporarily unavailable. Please try again shortly."
+
+    try:
+        results = _ddg_search(query, max_results=4)
+        if results:
+            return _format_ddg(query, results)
+    except Exception as e:
+        print(f"[WebSearch] Snippet fallback failed: {e}")
+
+    return "Web search is temporarily unavailable. Please try again shortly."
 
 
 def _news(query: str) -> str:
@@ -396,6 +417,8 @@ def web_search(
 
     if items and mode not in ("compare",):
         mode = "compare"
+    elif mode == "search" and query and any(w in query.lower() for w in ("news", "headline", "headlines", "breaking")):
+        mode = "news"
 
     if player:
         player.write_log(f"[Search:{mode}] {query or ', '.join(items)}")

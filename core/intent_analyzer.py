@@ -25,12 +25,14 @@ def analyze_query_fast(query: str) -> Optional[str]:
         return f'<|tool_call>call:autonomous_task{{"project": "{goal}"}}<tool_call|>'
         
     project_match = re.search(
-        r"(?:build|create|generate)\s+(?:me\s+)?(?:an?\s+)?project\s*[:\s]+(.*)",
+        r"(?:build|create|generate|make)\s+(?:me\s+)?(?:an?\s+)?(.*?project.*)",
         q_low,
     )
     if project_match:
         goal = project_match.group(1).strip()
         if goal:
+            # Clean outer quotes if any
+            goal = goal.strip('“"\'”')
             return f'<|tool_call>call:dev_agent{{"action": "build_project", "goal": "{goal}"}}<tool_call|>'
 
     # ── 2. Project / Task Monitoring ────────────────────────────────────

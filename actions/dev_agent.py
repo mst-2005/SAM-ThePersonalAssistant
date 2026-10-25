@@ -120,11 +120,18 @@ def build_project(
     base_path.mkdir(parents=True, exist_ok=True)
     
     # Step 1: Architectural Planning
+    wants_report = any(w in goal.lower() for w in ("report", "documentation", "paper", "summary document"))
+    wants_presentation = any(w in goal.lower() for w in ("powerpoint", "presentation", "ppt", "slides", "deck"))
+
     plan_prompt = (
-        f"Design the architecture for a complete software project.\n"
+        f"Design the architecture for a complete project deliverables package.\n"
         f"Goal: {goal}\n"
         f"Language: {language}\n"
         f"Project directory: {base_path.name}\n\n"
+        "Requirements:\n"
+        "- Include all necessary source code files, requirements.txt, and README.md.\n"
+        f"{'- MUST include a comprehensive project report (e.g. REPORT.md and report.docx or report.py generator)' if wants_report else ''}\n"
+        f"{'- MUST include generate_presentation.py to build presentation.pptx with slides' if wants_presentation else ''}\n"
         "Return ONLY a JSON object listing files to create with their purpose and key components.\n"
         "Format:\n"
         "{\n"
@@ -225,8 +232,15 @@ def build_project(
                 test_output = f"Test execution error: {te}"
     
     # Step 4: Summary Report
+    salutation = "Ma'am"
+    try:
+        from core.llm_client import _load_config
+        salutation = _load_config().get("salutation", "Ma'am")
+    except Exception:
+        pass
+
     lines = [
-        f"[OK] Project successfully built, sir!",
+        f"[OK] Project successfully built, {salutation}!",
         f"  Location: {base_path}",
         f"  Files generated ({len(created_files)} total):",
     ]

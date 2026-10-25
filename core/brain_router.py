@@ -166,14 +166,6 @@ def call_brain(
     except Exception:
         local_up = False
 
-    # For casual chat ("auto"), route to local model if it is up
-    if task_type == "auto" and local_up:
-        try:
-            content = llm_client.call_llm_text(prompt, system=system, timeout=timeout, max_tokens=max_tokens)
-            return {"content": content, "backend": "local"}
-        except Exception as e:
-            errors.append(f"local model auto-fallback failed: {e}")
-
     # Ultra-fast internet check using local DNS resolver (takes < 1ms)
     online = False
     try:
@@ -183,28 +175,32 @@ def call_brain(
     except OSError:
         pass
 
-    if online:
-        # Online: Try OpenAI first if configured, else Gemini
-        has_openai_key = bool((cfg.get("openai_api_key") or "").strip())
-        if has_openai_key:
+    has_gemini = bool((cfg.get("api_key") or cfg.get("gemini_api_key") or "").strip())
+    has_openai = bool((cfg.get("openai_api_key") or "").strip())
+
+    if online and (has_gemini or has_openai):
+        # Cloud LLM: Fast, complete, unconstrained responses
+        if has_openai:
             try:
                 content = _call_openai_cloud(prompt, system, timeout)
                 return {"content": content, "backend": "openai"}
             except Exception as e:
                 errors.append(f"openai: {e}")
 
-        try:
-            content = _call_gemini_text(prompt, system, timeout)
-            return {"content": content, "backend": "gemini"}
-        except Exception as e:
-            errors.append(f"gemini: {e}")
-            
-    # Offline (or API keys failed): Use Local LLM model (Ollama/LM Studio) if running
+        if has_gemini:
+            try:
+                content = _call_gemini_text(prompt, system, timeout)
+                return {"content": content, "backend": "gemini"}
+            except Exception as e:
+                errors.append(f"gemini: {e}")
+
+    # Fallback to local model (LM Studio or Ollama)
     if local_up:
         try:
             content = llm_client.call_llm_text(prompt, system=system, timeout=timeout, max_tokens=max_tokens)
-            return {"content": content, "backend": "ollama"}
+            if content:
+                return {"content": content, "backend": "local"}
         except Exception as e:
-            errors.append(f"ollama: {e}")
+            errors.append(f"local model: {e}")
 
     raise RuntimeError("All brain backends failed — " + " | ".join(errors))

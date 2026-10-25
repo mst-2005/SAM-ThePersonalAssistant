@@ -64,3 +64,4 @@ desktop.ini
 # Wake word and local models (large binaries)
 *.onnx
 config/*.onnx
+.sam.pid

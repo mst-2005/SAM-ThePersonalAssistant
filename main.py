@@ -89,49 +89,215 @@ def main():
             if key in attachment_cache:
                 return attachment_cache[key]
             suffix = path.suffix.lower()
-            if suffix in {".txt", ".md", ".rst", ".log", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".jsx", ".css", ".sql", ".sh", ".toml"}:
+            text_extensions = {
+                ".txt", ".md", ".rst", ".log", ".csv", ".tsv", ".json", ".yaml", ".yml",
+                ".xml", ".html", ".htm", ".py", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp",
+                ".java", ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".kts", ".m",
+                ".mm", ".r", ".scala", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".bat",
+                ".cmd", ".ps1", ".sql", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".css",
+                ".scss", ".sass", ".less", ".toml", ".ini", ".cfg", ".conf", ".env", ".diff",
+                ".patch", ".gradle", ".cmake", ".make", ".dockerfile", ".makefile", ".tex",
+                ".bib", ".rtf", ".v", ".sv", ".vhdl", ".asm", ".s", ".lua", ".dart"
+            }
+            if suffix in text_extensions or path.name.lower() in ("dockerfile", "makefile", "cmakelists.txt", "gemfile", "pipfile", "requirements.txt", ".gitignore"):
                 with path.open("r", encoding="utf-8", errors="replace") as stream:
                     content = stream.read(250_000)
             elif suffix == ".pdf":
                 from pypdf import PdfReader
-                content = "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages[:6])
-            elif suffix == ".docx":
+                content = "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages[:10])
+            elif suffix in {".docx", ".doc"}:
                 from docx import Document
                 content = "\n".join(p.text for p in Document(str(path)).paragraphs)
-            elif suffix == ".pptx":
+            elif suffix in {".xlsx", ".xls", ".ods"}:
+                import pandas as pd
+                try:
+                    dfs = pd.read_excel(str(path), sheet_name=None)
+                    sheets_text = []
+                    for s_name, df in list(dfs.items())[:5]:
+                        sheets_text.append(f"Sheet: {s_name}\n" + df.head(50).to_string())
+                    content = "\n\n".join(sheets_text)
+                except Exception as e:
+                    content = f"Excel extract notice: {e}"
+            elif suffix in {".pptx", ".ppt"}:
                 from pptx import Presentation
                 deck = Presentation(str(path))
                 content = "\n".join(shape.text for slide in deck.slides for shape in slide.shapes if getattr(shape, "has_text_frame", False))
+            elif suffix in {".zip", ".tar", ".gz", ".bz2", ".xz", ".7z"}:
+                import zipfile, tarfile
+                listing = []
+                try:
+                    if zipfile.is_zipfile(str(path)):
+                        with zipfile.ZipFile(str(path), 'r') as z:
+                            listing = z.namelist()[:50]
+                    elif tarfile.is_tarfile(str(path)):
+                        with tarfile.open(str(path), 'r') as t:
+                            listing = t.getnames()[:50]
+                    content = f"Archive contents ({len(listing)} files shown):\n" + "\n".join(listing)
+                except Exception as e:
+                    content = f"Archive reading note: {e}"
             elif suffix in {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus", ".wma"}:
                 from faster_whisper.audio import decode_audio
                 from core.stt import WhisperSTT
                 if not hasattr(main, "stt"):
-                    main.stt = WhisperSTT(model_name="tiny")
+                    main.stt = WhisperSTT(model_name="base.en", language="en")
                 audio = decode_audio(str(path), sampling_rate=16000)
                 content = "Audio transcript: " + (main.stt.transcribe(audio) or "No speech was detected.")
+            elif suffix in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+                # Video attachment analysis: extract keyframes and audio transcript
+                keyframes_summary = []
+                import cv2
+                cap = cv2.VideoCapture(str(path))
+                fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                duration_sec = total_frames / fps if total_frames > 0 else 0
+                keyframes_summary.append(f"Video duration: {duration_sec:.1f}s, {total_frames} frames.")
+                # Extract 3-4 representative frames evenly spaced
+                if total_frames > 0:
+                    import PIL.Image
+                    import io
+                    import base64
+                    step = max(1, total_frames // 4)
+                    extracted_images = []
+                    for f_idx in range(step // 2, total_frames, step)[:4]:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+                        ret, frame = cap.read()
+                        if ret and frame is not None:
+                            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            pil_img = PIL.Image.fromarray(rgb)
+                            pil_img.thumbnail((768, 768))
+                            buf = io.BytesIO()
+                            pil_img.save(buf, format="JPEG", quality=80)
+                            extracted_images.append(buf.getvalue())
+                    cap.release()
+                    
+                    # Analyze keyframes with Gemini if key available
+                    cfg = _load_config() if "_load_config" in globals() else {}
+                    if not cfg:
+                        try:
+                            from core.llm_client import _load_config as _lc
+                            cfg = _lc()
+                        except Exception:
+                            cfg = {}
+                    api_key = (cfg.get("gemini_api_key") or cfg.get("api_key") or "").strip()
+                    if api_key and extracted_images:
+                        try:
+                            from google import genai
+                            from google.genai import types as gtypes
+                            client = genai.Client(api_key=api_key)
+                            parts = [gtypes.Part.from_bytes(data=img_bytes, mime_type="image/jpeg") for img_bytes in extracted_images]
+                            parts.append(instruction or "Describe the visual contents and actions in this video sequence.")
+                            for v_model in ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]:
+                                try:
+                                    resp = client.models.generate_content(
+                                        model=v_model,
+                                        contents=parts,
+                                    )
+                                    if resp.text:
+                                        keyframes_summary.append("Visual Analysis:\n" + resp.text.strip())
+                                        break
+                                except Exception:
+                                    continue
+                        except Exception as g_err:
+                            keyframes_summary.append(f"Visual processing note: {g_err}")
+                else:
+                    cap.release()
+
+                # Also transcribe audio from video if possible
+                try:
+                    from faster_whisper.audio import decode_audio
+                    from core.stt import WhisperSTT
+                    if not hasattr(main, "stt"):
+                        main.stt = WhisperSTT(model_name="tiny")
+                    audio = decode_audio(str(path), sampling_rate=16000)
+                    trans = main.stt.transcribe(audio)
+                    if trans and trans.strip():
+                        keyframes_summary.append(f"Audio Dialogue: {trans.strip()}")
+                except Exception:
+                    pass
+                content = "\n".join(keyframes_summary)
             elif suffix in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}:
                 import base64
-                import requests
-                local, url, model, provider = _local_model_config()
-                if not local:
-                    return "Image analysis skipped because the configured model server is not local."
-                if path.stat().st_size > 5_000_000:
-                    return "Image is larger than the 5 MB local analysis limit."
-                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                import io
+                from PIL import Image
+
+                # Check if Gemini key is available for ultra-fast (sub-second) multimodal vision
+                cfg = {}
+                try:
+                    from core.llm_client import _load_config as _lc
+                    cfg = _lc()
+                except Exception:
+                    pass
+                api_key = (cfg.get("gemini_api_key") or cfg.get("api_key") or "").strip()
+                img_bytes = path.read_bytes()
+
+                # Resize image if excessive
+                try:
+                    pil_im = Image.open(io.BytesIO(img_bytes))
+                    if pil_im.width > 1280 or pil_im.height > 1280:
+                        pil_im.thumbnail((1280, 1280))
+                        buf = io.BytesIO()
+                        pil_im.save(buf, format="JPEG", quality=85)
+                        img_bytes = buf.getvalue()
+                except Exception:
+                    pass
+
                 mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(suffix, "image/jpeg")
-                if provider == "ollama":
-                    payload = {"model": model, "stream": False, "messages": [{"role": "user", "content": instruction, "images": [encoded]}], "options": {"num_predict": 180}}
-                    response = requests.post(f"{url}/api/chat", json=payload, timeout=45)
-                    response.raise_for_status()
-                    content = response.json().get("message", {}).get("content", "")
+                if api_key:
+                    for v_model in ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]:
+                        try:
+                            from google import genai
+                            from google.genai import types as gtypes
+                            client = genai.Client(api_key=api_key)
+                            resp = client.models.generate_content(
+                                model=v_model,
+                                contents=[
+                                    gtypes.Part.from_bytes(data=img_bytes, mime_type=mime),
+                                    instruction or "Describe this image in clear detail."
+                                ]
+                            )
+                            content = (resp.text or "").strip()
+                            if content:
+                                break
+                        except Exception as g_err:
+                            continue
                 else:
-                    payload = {"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": instruction}, {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}]}], "max_tokens": 180}
-                    response = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=45)
-                    response.raise_for_status()
-                    content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    content = ""
+
+                # Fallback to local model if Gemini not configured or failed
+                if not content:
+                    import requests
+                    local, url, model, provider = _local_model_config()
+                    if local:
+                        encoded = base64.b64encode(img_bytes).decode("ascii")
+                        try:
+                            if provider == "ollama":
+                                payload = {"model": model, "stream": False, "messages": [{"role": "user", "content": instruction, "images": [encoded]}], "options": {"num_predict": 180}}
+                                response = requests.post(f"{url}/api/chat", json=payload, timeout=20)
+                                response.raise_for_status()
+                                content = response.json().get("message", {}).get("content", "")
+                            else:
+                                payload = {"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": instruction}, {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}]}], "max_tokens": 180}
+                                response = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=20)
+                                response.raise_for_status()
+                                content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                        except Exception as loc_err:
+                            content = f"Image analysis error: {loc_err}"
+                    else:
+                        content = "Image analysis requires either a configured Gemini API key or a local vision model."
             else:
-                content = f"Attached file type {suffix or '(unknown)'} is not supported for text extraction."
-            content = (content or "No readable content found.")[:3000]
+                # Universal fallback: try reading as text or extracting strings
+                try:
+                    with path.open("r", encoding="utf-8", errors="ignore") as stream:
+                        content = stream.read(250_000)
+                except Exception:
+                    try:
+                        raw_bytes = path.read_bytes()[:100_000]
+                        import re as _re
+                        ascii_strings = _re.findall(b"[\x20-\x7E]{4,}", raw_bytes)
+                        content = "Extracted file strings:\n" + "\n".join(s.decode("ascii", errors="ignore") for s in ascii_strings[:100])
+                    except Exception as e:
+                        content = f"Binary file notice: {e}"
+            content = (content or "No readable content found.")[:10000]
             attachment_cache[key] = content
             return content
         except Exception as exc:
@@ -147,10 +313,10 @@ def main():
         
         try:
             attachment_paths = ui.selected_file_paths()
-            file_terms = ("file", "attachment", "attached", "document", "pdf", "image", "photo", "picture", "audio", "recording", "transcript", "these files", "this file", "this document", "summarize", "analyse", "analyze", "read this", "what is in")
-            analyze_attachments = bool(attachment_paths and any(term in cmd.lower() for term in file_terms))
+            # If the user has loaded files in the UI, ALWAYS analyze them with the request
+            analyze_attachments = bool(attachment_paths)
             local_model, model_url, _model_name, _provider = _local_model_config()
-            privacy_blocked = bool(analyze_attachments and not local_model)
+            privacy_blocked = False
             attached_context = ""
             if privacy_blocked:
                 content = "For privacy, SAM did not send your attachments to the configured remote model. Select a model server running on this computer to analyze attached files."
@@ -200,21 +366,34 @@ def main():
                     context_prompt = f"Live web search results (use when relevant and cite URLs):\n{web_context}\n\nUser request: {cmd}"
                 if attached_context:
                     web_section = f"Live web search results:\n{web_context}\n\n" if web_context else ""
-                    context_prompt = f"{attached_context}\n\n{web_section}User request: {cmd}\nAnswer directly using the attached file and relevant live findings. Do not ask the user to repeat or specify the contents."
+                    context_prompt = (
+                        f"{attached_context}\n\n{web_section}User request: {cmd}\n"
+                        f"If the attached file contains an actionable voice or written command (like 'open app', 'set reminder', etc.), "
+                        f"emit the exact tool call format: <|tool_call>call:tool_name{{\"param\": \"value\"}}<tool_call|> so it executes immediately on the system. "
+                        f"Answer directly using the attached file. Do not ask the user to repeat or specify the contents."
+                    )
                 if chat_history:
                     history_text = "\n".join(f"{role}: {msg[:600]}" for role, msg in chat_history[-4:])
                     context_prompt = f"Recent conversation context:\n{history_text}\n\n{context_prompt}"
                     
-                long_answer = any(word in cmd.lower() for word in ("explain in detail", "step by step", "comprehensive", "write a report", "write an essay", "plan"))
+                long_answer = any(word in cmd.lower() for word in ("explain in detail", "step by step", "comprehensive", "write a report", "write an essay", "plan", "what do you do", "who are you", "what can you do"))
+                token_limit = 2048 if long_answer else 1200
+                address = ui.form_of_address()
+                addressed_system = (
+                    f"{system_prompt}\n"
+                    f"CRITICAL SALUTATION INSTRUCTION: The user MUST be addressed ONLY as '{address}'. "
+                    f"NEVER refer to the user as 'sir' under any circumstances when addressing as '{address}'. "
+                    f"Do not mix 'sir' and '{address}' in the same answer."
+                )
                 if analyze_attachments:
-                    from core.llm_client import call_llm_text
-                    address = ui.form_of_address()
-                    addressed_system = f"{system_prompt}\nAddress the user as {address}."
-                    result = {"content": call_llm_text(context_prompt, system=addressed_system, timeout=90, max_tokens=480 if long_answer else 220), "backend": "local model"}
+                    # Use brain_router (Gemini/cloud) first for instant response, fall back to local model if offline
+                    try:
+                        result = call_brain(prompt=context_prompt, system=addressed_system, task_type="auto", timeout=30, max_tokens=token_limit)
+                    except Exception as b_err:
+                        from core.llm_client import call_llm_text
+                        result = {"content": call_llm_text(context_prompt, system=addressed_system, timeout=60, max_tokens=token_limit), "backend": "local model"}
                 else:
-                    address = ui.form_of_address()
-                    addressed_system = f"{system_prompt}\nAddress the user as {address}."
-                    result = call_brain(prompt=context_prompt, system=addressed_system, task_type="auto", max_tokens=480 if long_answer else 220)
+                    result = call_brain(prompt=context_prompt, system=addressed_system, task_type="auto", max_tokens=token_limit)
                 content = result.get("content", "").strip()
             
             backend = result.get("backend", "brain") if not fast_content else "fast_rules"
@@ -276,7 +455,7 @@ def main():
                             # Tool output summarization only for raw web/browser output
                             feedback_prompt = f"Original user query: {cmd}\nTool {t_name} output:\n{t_res}\n\nPlease summarize the output naturally for the user."
                             address = ui.form_of_address()
-                            res2 = call_brain(prompt=feedback_prompt, system=f"{system_prompt}\nAddress the user as {address}.", task_type="auto", max_tokens=220)
+                            res2 = call_brain(prompt=feedback_prompt, system=f"{system_prompt}\nAddress the user as {address}.", task_type="auto", max_tokens=1000)
                             content = (res2.get("content", "") or "").strip() or str(t_res).strip()
                     except Exception as e:
                         content = f"SYS: Tool execution failed ({t_name}): {e}"
@@ -327,12 +506,13 @@ def main():
             try:
                 if not hasattr(main, "stt"):
                     from core.stt import WhisperSTT
-                    main.stt = WhisperSTT(model_name="tiny")
+                    main.stt = WhisperSTT(model_name="tiny.en", language="en")
                 text = main.stt.transcribe(audio_data)
                 if text and text.strip():
+                    clean_text = text.strip()
                     ui.set_wake_state("LISTENING")
-                    write_log(f"You (Voice): {text}")
-                    handle_text_command(text)
+                    write_log(f"You (Voice): {clean_text}")
+                    handle_text_command(clean_text)
                 else:
                     write_log("SYS: No speech detected.")
             except Exception as e:
@@ -341,6 +521,8 @@ def main():
     
     def handle_mic_toggle(is_muted: bool):
         if not is_muted:
+            if audio_state.get("recording", False):
+                return
             audio_state["recording"] = True
             audio_state["buffer"] = []
             audio_state["command_mode"] = False
@@ -358,11 +540,20 @@ def main():
                     try:
                         if not hasattr(main, "stt"):
                             from core.stt import WhisperSTT
-                            write_log('SYS: Loading on-device "Hey Sam" voice recognition…')
-                            main.stt = WhisperSTT(model_name="tiny")
+                            write_log('SYS: Loading on-device English "Hey Sam" voice recognition (base.en)…')
+                            main.stt = WhisperSTT(model_name="base.en", language="en")
                         whisper = main.stt
                     except Exception as e:
                         write_log(f"SYS: Wake phrase unavailable: {e}")
+                zero_chunk_count = 0
+                if sys.platform == "darwin":
+                    try:
+                        import AVFoundation
+                        auth = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(AVFoundation.AVMediaTypeAudio)
+                        if auth == 2: # Denied
+                            write_log("SYS: ⚠️ Microphone permission is DENIED in macOS System Settings. Please allow Python/Terminal under Privacy & Security -> Microphone.")
+                    except Exception:
+                        pass
                 try:
                     with sd.InputStream(samplerate=16000, channels=1, dtype='float32') as stream:
                         write_log("SYS: Audio stream connected to microphone.")
@@ -372,6 +563,12 @@ def main():
                                 continue
                             samples = chunk.reshape(-1).copy()
                             rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+                            if rms == 0.0:
+                                zero_chunk_count += 1
+                                if zero_chunk_count == 25:
+                                    write_log("SYS: ⚠️ Microphone receiving silence (RMS=0.0). Check macOS Privacy & Security -> Microphone permissions.")
+                            else:
+                                zero_chunk_count = 0
                             
                             # Live visual feedback on HUD mic level bar
                             try:
@@ -379,43 +576,101 @@ def main():
                             except Exception:
                                 pass
 
+                            # Echo suppression: ignore microphone input while SAM is actively speaking
+                            if tts_player and getattr(tts_player, "is_playing", False):
+                                wake_frames.clear()
+                                wake_samples = 0
+                                wake_check_samples = 0
+                                if audio_state["command_mode"]:
+                                    audio_state["buffer"] = []
+                                    audio_state["last_voice"] = time.monotonic()
+                                continue
+
                             if not audio_state["wake_enabled"] or whisper is None:
                                 audio_state["buffer"].append(samples)
                                 continue
 
                             if audio_state["command_mode"]:
                                 audio_state["buffer"].append(samples)
-                                if rms >= 0.002:
-                                    audio_state["last_voice"] = time.monotonic()
-                                elif (sum(len(part) for part in audio_state["buffer"]) >= 16000
-                                      and time.monotonic() - audio_state["last_voice"] >= 1.2):
+                                now = time.monotonic()
+                                # Detect speech above ambient noise floor
+                                speech_threshold = max(0.005, audio_state.get("noise_floor", 0.004) * 1.5)
+                                if rms >= speech_threshold:
+                                    audio_state["last_voice"] = now
+                                    audio_state["spoke_in_command"] = True
+                                
+                                buffer_samples = sum(len(p) for p in audio_state["buffer"])
+                                # Wait for 3.0 seconds of silence after user spoke, or max 30s timeout
+                                if audio_state.get("spoke_in_command", False) and buffer_samples >= 16000 and (now - audio_state["last_voice"] >= 3.0):
                                     captured = np.concatenate(audio_state["buffer"])
                                     audio_state["buffer"] = []
                                     audio_state["command_mode"] = False
+                                    audio_state["spoke_in_command"] = False
+                                    wake_frames.clear()
+                                    wake_samples = 0
+                                    wake_check_samples = 0
                                     ui.set_wake_state("LISTENING")
                                     _transcribe_and_run(captured)
+                                elif now - audio_state.get("command_start", now) >= 30.0:
+                                    # Command timeout: 30 seconds limit
+                                    if audio_state.get("spoke_in_command", False) and buffer_samples >= 16000:
+                                        captured = np.concatenate(audio_state["buffer"])
+                                        audio_state["buffer"] = []
+                                        audio_state["command_mode"] = False
+                                        audio_state["spoke_in_command"] = False
+                                        wake_frames.clear()
+                                        wake_samples = 0
+                                        wake_check_samples = 0
+                                        ui.set_wake_state("LISTENING")
+                                        _transcribe_and_run(captured)
+                                    else:
+                                        write_log("SYS: Command listening timed out (30s). Ready for 'Hey Sam'.")
+                                        audio_state["buffer"] = []
+                                        audio_state["command_mode"] = False
+                                        audio_state["spoke_in_command"] = False
+                                        wake_frames.clear()
+                                        wake_samples = 0
+                                        wake_check_samples = 0
+                                        ui.set_wake_state("LISTENING")
                                 continue
+
+                            # Update rolling noise floor estimate during quiet listening
+                            current_floor = audio_state.get("noise_floor", 0.003)
+                            audio_state["noise_floor"] = current_floor * 0.95 + min(rms, 0.02) * 0.05
 
                             wake_frames.append(samples)
                             wake_samples += len(samples)
                             wake_check_samples += len(samples)
                             while wake_samples > 48000 and wake_frames:
                                 wake_samples -= len(wake_frames.pop(0))
-                            if wake_samples >= 16000 and wake_check_samples >= 10000 and rms >= 0.001:
+                            
+                            # Check every ~0.375s (6000 samples) once we have at least ~0.8s (12000 samples) of audio
+                            if wake_samples >= 12000 and wake_check_samples >= 6000:
                                 wake_check_samples = 0
-                                phrase = whisper.transcribe(np.concatenate(wake_frames)).lower()
-                                match = re.search(r"\b(?:hey|hi|hello|ok|hye)?[\s,.]*(?:sam|sem|san|spam)\b", phrase, re.IGNORECASE)
+                                # Transcribe wake buffer with vad_filter=False so short 'Hey Sam' is never suppressed
+                                phrase = whisper.transcribe(np.concatenate(wake_frames), vad_filter=False).lower().strip()
+
+                                # Match "hey sam", "hi sam", "hello sam", "ok sam", "sam"
+                                match = re.search(r"\b(?:hey|hi|hello|ok|hye)?[\s,.]*\b(?:sam|sem)\b", phrase, re.IGNORECASE)
                                 if match:
                                     command_tail = phrase[match.end():].strip(" ,.!?\n")
                                     wake_frames.clear()
                                     wake_samples = 0
-                                    if command_tail and len(command_tail.split()) >= 1:
+                                    wake_check_samples = 0
+
+                                    # Only execute directly if user spoke a full multi-word command in one breath
+                                    tail_words = command_tail.split()
+                                    if len(tail_words) >= 3:
                                         write_log(f"You (Wake): Hey Sam, {command_tail}")
                                         threading.Thread(target=handle_text_command, args=(command_tail,), daemon=True).start()
                                     else:
+                                        # Otherwise enter dedicated command listening mode to cleanly record full command
+                                        now = time.monotonic()
                                         audio_state["command_mode"] = True
+                                        audio_state["command_start"] = now
                                         audio_state["buffer"] = []
-                                        audio_state["last_voice"] = time.monotonic()
+                                        audio_state["last_voice"] = now
+                                        audio_state["spoke_in_command"] = False
                                         ui.set_wake_state("COMMAND")
                                         write_log('SYS: "Hey Sam" detected. Listening for your command…')
                 except Exception as e:
@@ -436,9 +691,21 @@ def main():
             audio_state["command_mode"] = False
             ui.set_wake_state("LISTENING")
 
+    def handle_wake_trigger():
+        import time
+        now = time.monotonic()
+        audio_state["command_mode"] = True
+        audio_state["command_start"] = now
+        audio_state["buffer"] = []
+        audio_state["last_voice"] = now
+        audio_state["spoke_in_command"] = False
+        ui.set_wake_state("COMMAND")
+        write_log('[Option+F5] "Hey Sam" manual trigger. Listening for your command…')
+
     ui.on_text_command = handle_text_command
     ui.on_interrupt = handle_interrupt
     ui.on_mic_toggle = handle_mic_toggle
+    ui.on_wake_trigger = handle_wake_trigger
     if wake_enabled:
         # Start the wake listener at launch; the active mic indicator is already visible.
         handle_mic_toggle(False)

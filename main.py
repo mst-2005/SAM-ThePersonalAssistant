@@ -27,12 +27,19 @@ def main():
     ui = SamUI()
     cfg = _load_config()
 
+    def write_log(msg: str):
+        try:
+            print(f"[SAM] {msg}", flush=True)
+        except Exception:
+            pass
+        ui.write_log(msg)
+
     # Initialize TTS player if possible
     tts_player = None
     try:
         tts_player = create_tts_player(cfg)
     except Exception as e:
-        ui.write_log(f"SYS: TTS initialization warning: {e}")
+        write_log(f"SYS: TTS initialization warning: {e}")
 
 
     # Load system prompt
@@ -154,7 +161,7 @@ def main():
                 remaining = 10000
                 for raw_path in (attachment_paths[:10] if analyze_attachments else []):
                     file_path = Path(raw_path)
-                    ui.write_log(f"SYS: Reading attachment {file_path.name}…")
+                    write_log(f"SYS: Reading attachment {file_path.name}…")
                     extracted = _extract_attachment(file_path, f"Read this image for the user's request: {cmd}")
                     section = f"Attached file: {file_path.name}\n{extracted[:remaining]}"
                     attachment_sections.append(section)
@@ -173,7 +180,7 @@ def main():
             if privacy_blocked:
                 pass
             elif fast_content:
-                ui.write_log("SYS: Fast Intent Analyzer intercepted the query.")
+                write_log("SYS: Fast Intent Analyzer intercepted the query.")
                 content = fast_content
             else:
                 # 2. Only search the web if explicitly requested
@@ -187,7 +194,7 @@ def main():
                         if web_context.startswith("No results found"):
                             web_context = "Live web search returned no usable pages, so answer from available knowledge and state that current details could not be verified."
                     except Exception as search_error:
-                        ui.write_log(f"SYS: Web search unavailable: {search_error}")
+                        write_log(f"SYS: Web search unavailable: {search_error}")
                         web_context = "Live web search is temporarily unavailable, so answer from your available knowledge and clearly say you could not verify current information."
                 if web_context:
                     context_prompt = f"Live web search results (use when relevant and cite URLs):\n{web_context}\n\nUser request: {cmd}"
@@ -247,7 +254,7 @@ def main():
                         speak_text(quick_acks[t_name])
 
                     try:
-                        ui.write_log(f"SYS: Executing tool {t_name}...")
+                        write_log(f"SYS: Executing tool {t_name}...")
                         alias_map = {
                             "screen_process": "screen_processor",
                             "screen_processor": "screen_processor",
@@ -279,7 +286,7 @@ def main():
                 content = re.sub(r"<\|tool_call>.*?<tool_call\|>", "", content, flags=re.DOTALL).strip()
                 if not content:
                     content = "I couldn't process that request, sir. Please try again."
-            ui.write_log(f"SAM: {content}")
+            write_log(f"SAM: {content}")
             
             # Store in short-term memory
             chat_history.append(("User", cmd))
@@ -297,7 +304,7 @@ def main():
             speak_text(content)
         except Exception as e:
             err_msg = f"SYS: Error processing command: {e}"
-            ui.write_log(err_msg)
+            write_log(err_msg)
             ui.set_state("LISTENING")
             ui.set_current_task("IDLE")
 
@@ -324,12 +331,12 @@ def main():
                 text = main.stt.transcribe(audio_data)
                 if text and text.strip():
                     ui.set_wake_state("LISTENING")
-                    ui.write_log(f"You (Voice): {text}")
+                    write_log(f"You (Voice): {text}")
                     handle_text_command(text)
                 else:
-                    ui.write_log("SYS: No speech detected.")
+                    write_log("SYS: No speech detected.")
             except Exception as e:
-                ui.write_log(f"SYS: Voice transcription error: {e}")
+                write_log(f"SYS: Voice transcription error: {e}")
         threading.Thread(target=_transcribe, daemon=True).start()
     
     def handle_mic_toggle(is_muted: bool):
@@ -351,32 +358,41 @@ def main():
                     try:
                         if not hasattr(main, "stt"):
                             from core.stt import WhisperSTT
-                            ui.write_log('SYS: Loading on-device "Hey Sam" voice recognition…')
+                            write_log('SYS: Loading on-device "Hey Sam" voice recognition…')
                             main.stt = WhisperSTT(model_name="tiny")
                         whisper = main.stt
                     except Exception as e:
-                        ui.write_log(f"SYS: Wake phrase unavailable: {e}")
+                        write_log(f"SYS: Wake phrase unavailable: {e}")
                 try:
                     with sd.InputStream(samplerate=16000, channels=1, dtype='float32') as stream:
+                        write_log("SYS: Audio stream connected to microphone.")
                         while audio_state["recording"]:
                             chunk, _overflow = stream.read(4000)
                             if not len(chunk):
                                 continue
                             samples = chunk.reshape(-1).copy()
                             rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+                            
+                            # Live visual feedback on HUD mic level bar
+                            try:
+                                ui.set_mic_level(min(1.0, rms * 15.0))
+                            except Exception:
+                                pass
+
                             if not audio_state["wake_enabled"] or whisper is None:
                                 audio_state["buffer"].append(samples)
                                 continue
 
                             if audio_state["command_mode"]:
                                 audio_state["buffer"].append(samples)
-                                if rms >= 0.003:
+                                if rms >= 0.002:
                                     audio_state["last_voice"] = time.monotonic()
                                 elif (sum(len(part) for part in audio_state["buffer"]) >= 16000
                                       and time.monotonic() - audio_state["last_voice"] >= 1.2):
                                     captured = np.concatenate(audio_state["buffer"])
                                     audio_state["buffer"] = []
                                     audio_state["command_mode"] = False
+                                    ui.set_wake_state("LISTENING")
                                     _transcribe_and_run(captured)
                                 continue
 
@@ -385,30 +401,34 @@ def main():
                             wake_check_samples += len(samples)
                             while wake_samples > 48000 and wake_frames:
                                 wake_samples -= len(wake_frames.pop(0))
-                            if wake_samples >= 20000 and wake_check_samples >= 12000 and rms >= 0.002:
+                            if wake_samples >= 16000 and wake_check_samples >= 10000 and rms >= 0.001:
                                 wake_check_samples = 0
                                 phrase = whisper.transcribe(np.concatenate(wake_frames)).lower()
-                                match = re.search(r"\b(?:hey|hi|hello|ok)?[,. ]*sam\b", phrase, re.IGNORECASE)
+                                match = re.search(r"\b(?:hey|hi|hello|ok|hye)?[\s,.]*(?:sam|sem|san|spam)\b", phrase, re.IGNORECASE)
                                 if match:
                                     command_tail = phrase[match.end():].strip(" ,.!?\n")
                                     wake_frames.clear()
                                     wake_samples = 0
                                     if command_tail and len(command_tail.split()) >= 1:
-                                        ui.write_log(f"You (Wake): Hey Sam, {command_tail}")
+                                        write_log(f"You (Wake): Hey Sam, {command_tail}")
                                         threading.Thread(target=handle_text_command, args=(command_tail,), daemon=True).start()
                                     else:
                                         audio_state["command_mode"] = True
                                         audio_state["buffer"] = []
                                         audio_state["last_voice"] = time.monotonic()
                                         ui.set_wake_state("COMMAND")
-                                        ui.write_log('SYS: "Hey Sam" detected. Listening for your command…')
+                                        write_log('SYS: "Hey Sam" detected. Listening for your command…')
                 except Exception as e:
-                    ui.write_log(f"SYS: Audio input error: {e}")
+                    write_log(f"SYS: Audio input error: {e}")
             threading.Thread(target=_record_loop, daemon=True).start()
         else:
             audio_state["recording"] = False
-            if audio_state["buffer"] and not audio_state["wake_enabled"]:
-                ui.write_log("SYS: Transcribing voice...")
+            try:
+                ui.set_mic_level(0.0)
+            except Exception:
+                pass
+            if audio_state["buffer"]:
+                write_log("SYS: Transcribing voice...")
                 import numpy as np
                 audio_data = np.concatenate(audio_state["buffer"]).flatten()
                 _transcribe_and_run(audio_data)
@@ -423,8 +443,8 @@ def main():
         # Start the wake listener at launch; the active mic indicator is already visible.
         handle_mic_toggle(False)
 
-    ui.write_log("SYS: Quantum neural matrix initialized.")
-    ui.write_log("SYS: MARK XLIX online. All telemetry nominal.")
+    write_log("SYS: Quantum neural matrix initialized.")
+    write_log("SYS: MARK XLIX online. All telemetry nominal.")
     ui.set_state("LISTENING")
     ui.set_wake_state("LISTENING" if wake_enabled else "OFF")
     ui.set_current_task("IDLE")

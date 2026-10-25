@@ -22,6 +22,7 @@ uvicorn[standard]==0.52.3
 cryptography==46.0.6
 python-multipart==0.0.32
 qrcode[pil]==8.2
+miniaudio>=1.71
 
 # Hybrid voice pipeline (Phase 2) — wake word, offline STT confirmation, TTS
 openwakeword==0.4.0

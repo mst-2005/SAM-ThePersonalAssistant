@@ -1829,6 +1829,8 @@ class SamUI:
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
         self._win.show()
+        self._win.raise_()
+        self._win.activateWindow()
 
     def set_state(self, state: str):
         self._win._state_sig.emit(state)

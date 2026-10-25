@@ -8,8 +8,6 @@ echo.
 echo Launching SAM core system, GUI HUD, and audio listener...
 echo.
 python main.py
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [ERROR] SAM exited with error code %ERRORLEVEL%.
-    pause
-)
+echo.
+echo SAM session ended. Press any key to close this window...
+pause >nul

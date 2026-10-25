@@ -1,0 +1,66 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment and sensitive configuration
+.env
+.env.*
+config/api_keys.json
+config/certs/
+
+# Logs and runtime databases
+*.log
+logs/
+*.sqlite3
+
+# Checkpoints and runtime scratch
+memory/autonomous_tasks/
+memory/captures/
+memory/reminders.json
+projects/
+scratch/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Wake word and local models (large binaries)
+*.onnx
+config/*.onnx

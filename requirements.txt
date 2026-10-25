@@ -1,0 +1,37 @@
+PyQt6==6.11.0
+sounddevice==0.5.5
+google-genai==2.18.1
+google-generativeai==0.8.6
+pillow==12.1.1
+requests==2.33.1
+beautifulsoup4==4.14.3
+duckduckgo-search==8.1.1
+playwright==1.56.0
+pyautogui==0.9.54
+pyperclip==1.11.0
+pygetwindow==0.0.9
+opencv-python==4.13.0.92
+numpy==2.4.4
+mss==10.2.0
+psutil==7.2.2
+send2trash==2.1.0
+youtube-transcript-api==1.2.4
+python-pptx==1.0.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+cryptography==46.0.6
+python-multipart==0.0.32
+qrcode[pil]==8.2
+
+# Hybrid voice pipeline (Phase 2) — wake word, offline STT confirmation, TTS
+openwakeword==0.4.0
+faster-whisper==1.2.1
+piper-tts==1.7.0
+elevenlabs==2.64.0
+
+# Windows-only — left unpinned since they can't be verified outside Windows
+comtypes; sys_platform == "win32"
+pycaw; sys_platform == "win32"
+win10toast; sys_platform == "win32"
+pywinauto; sys_platform == "win32"
+pywin32; sys_platform == "win32"

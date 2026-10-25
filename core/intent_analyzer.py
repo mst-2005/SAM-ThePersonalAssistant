@@ -130,6 +130,19 @@ def analyze_query_fast(query: str) -> Optional[str]:
     if q_low in ["status", "system status", "how is the system", "system load", "stats", "hardware status"]:
         return '<|tool_call>call:system_status{}<tool_call|>'
 
+    # ── 10b. Time & Calendar ───────────────────────────────────────────
+    if any(q_low == phrase or q_low.startswith(phrase) for phrase in [
+        "what time is it", "what is the time", "tell me the time", "current time", "what's the time", "time now"
+    ]):
+        return '<|tool_call>call:reminder{{"action": "time"}}<tool_call|>'
+
+    if any(q_low == phrase or q_low.startswith(phrase) for phrase in [
+        "check calendar", "check my calendar", "what's on my calendar", "what is on my calendar",
+        "show calendar", "open calendar", "what is today's date", "what is the date",
+        "today's date", "what day is it", "calendar today", "my schedule today"
+    ]):
+        return '<|tool_call>call:reminder{{"action": "calendar"}}<tool_call|>'
+
     # ── 11. Reminders & Scheduling ──────────────────────────────────────
     remind_min_match = re.search(r"remind\s+(?:me\s+)?in\s+(\d+(?:\.\d+)?)\s*(?:m|min|minute|minutes)\s+(?:to\s+)?(.*)", q_low)
     if remind_min_match:
@@ -168,7 +181,72 @@ def analyze_query_fast(query: str) -> Optional[str]:
     if q_low in ["call my phone", "call me", "call my cell", "dial my phone"]:
         return '<|tool_call>call:phone_notifier{{"action": "call", "message": "Good day sir, this is SAM calling with your status report."}}<tool_call|>'
 
-    # ── 13. Emotional Support & Health Consoling (SAM Care) ────────────
+    # ── 13. Emotional Support & Human Resonance (SAM Care) ────────────
+    # 13a. Joy, Excitement & Celebrating Wins
+    if any(phrase in q_low for phrase in [
+        "i am so happy", "i'm happy", "i'm so happy", "feeling happy", "feel happy",
+        "i got the job", "i passed my exam", "i passed", "we won", "i won",
+        "great news", "wonderful news", "amazing news", "i did it", "we did it",
+        "celebrate", "celebrating", "i feel great", "feeling great", "i feel amazing",
+        "i'm excited", "so excited", "best day ever"
+    ]):
+        return (
+            "That is incredible news, sir! I am genuinely thrilled and celebrating with you! "
+            "You worked so hard for this, and seeing your efforts pay off is truly well-deserved. "
+            "Take a moment to soak in this victory! Would you like me to play some celebratory music to mark the moment?"
+        )
+
+    # 13b. Breathing & Calming Exercises
+    if any(phrase in q_low for phrase in [
+        "calm me down", "help me relax", "breathing exercise", "help me breathe",
+        "i need to calm down", "panic attack", "guided breathing", "box breathing", "help me relax"
+    ]):
+        return '<|tool_call>call:emotional_support{{"action": "breathe"}}<tool_call|>'
+
+    # 13c. Cheer me up / Tell me a joke / Light up mood
+    if any(phrase in q_low for phrase in [
+        "cheer me up", "make me smile", "tell me something funny", "light up my mood",
+        "lift my spirits", "make me laugh", "tell me a joke"
+    ]):
+        return '<|tool_call>call:emotional_support{{"action": "cheer"}}<tool_call|>'
+
+    # 13d. Relaxing / Ambient Music
+    if any(phrase in q_low for phrase in [
+        "play relaxing music", "play calming music", "play relax music",
+        "play soothing music", "calm music", "relaxing sounds", "play lofi"
+    ]):
+        return '<|tool_call>call:emotional_support{{"action": "music", "mood": "relax"}}<tool_call|>'
+
+    # 13e. Mood History & Emotional Tracking
+    if any(phrase in q_low for phrase in [
+        "how is my mood", "my mood trends", "emotional wellness", "mood history", "how have i been feeling"
+    ]):
+        return '<|tool_call>call:emotional_support{{"action": "trends"}}<tool_call|>'
+
+    # 13f. Anger & Frustration
+    if any(phrase in q_low for phrase in [
+        "i am so angry", "i'm angry", "i am furious", "so pissed", "this is so frustrating",
+        "i hate this", "i am frustrated", "i'm frustrated", "i can't take this anymore"
+    ]):
+        return (
+            "I hear you completely, sir. Take a moment to vent—I am listening without judgment. "
+            "It is entirely valid to feel furious when things don't go right. "
+            "Take a slow breath. When you're ready, tell me what happened, or let me handle the computer chores while you step away."
+        )
+
+    # 13g. Anxiety & Overwhelm
+    if any(phrase in q_low for phrase in [
+        "i am anxious", "i'm anxious", "feeling anxious", "so anxious", "having anxiety",
+        "i'm overwhelmed", "i feel overwhelmed", "so much stress", "too much pressure",
+        "i can't handle this", "i'm nervous", "feeling nervous"
+    ]):
+        return (
+            "Take a deep breath with me, sir. You do not have to conquer everything all at once. "
+            "Let's break things down together, one single step at a time. "
+            "Would you like to do a quick 30-second guided breathing exercise, or shall I dim the screen so you can pause for a minute?"
+        )
+
+    # 13h. Sadness, Grief & Rough Days
     if any(phrase in q_low for phrase in [
         "i am sad", "i'm sad", "feeling sad", "feel sad",
         "i am depressed", "i'm depressed", "feeling depressed",
@@ -179,11 +257,12 @@ def analyze_query_fast(query: str) -> Optional[str]:
     ]):
         return (
             "I am right here with you, sir. I am truly sorry you are having a difficult time. "
-            "Please know that your well-being matters far more than any deadline or task. "
+            "Please know that you are deeply valued, and your well-being matters far more than any deadline or task. "
             "How are you feeling physically right now? Have you stayed hydrated and had something to eat today? "
-            "If you need a moment, I can dim your display, set a relaxing reminder, or handle your pending PC tasks so you can rest."
+            "If you need a moment, I can dim your display, play soothing music, guide a calming breath, or tell you something cheerful to light up your mood."
         )
 
+    # 13i. Physical Fatigue & Illness
     if any(phrase in q_low for phrase in [
         "i have a headache", "my head hurts", "i don't feel good", "not feeling well",
         "i am sick", "i feel sick", "i'm exhausted", "i am so tired", "i'm tired"

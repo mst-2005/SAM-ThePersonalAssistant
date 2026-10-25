@@ -232,6 +232,45 @@ def cancel_reminder(reminder_id: str = "") -> str:
     return f"Could not find reminder matching '{reminder_id}', sir."
 
 
+def check_time() -> str:
+    """Returns the current local time, period of the day, and date formatted for voice response."""
+    now = datetime.datetime.now()
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+    date_str = now.strftime("%A, %B %d, %Y")
+    return f"The current time is {time_str} on {date_str}, sir."
+
+
+def check_calendar() -> str:
+    """Returns calendar overview: current date, day of year, upcoming scheduled items and events."""
+    now = datetime.datetime.now()
+    date_str = now.strftime("%A, %B %d, %Y")
+    day_num = now.timetuple().tm_yday
+    week_num = now.isocalendar()[1]
+    
+    # Load upcoming reminders / scheduled calendar entries
+    reminders = _load_reminders()
+    upcoming_lines = []
+    for r in reminders:
+        try:
+            target_dt = datetime.datetime.fromisoformat(r["target_time"])
+            diff = (target_dt - now).total_seconds()
+            if diff > 0:
+                mins = int(diff // 60)
+                upcoming_lines.append(f"  - {r['message']} (in {mins} min at {target_dt.strftime('%I:%M %p')})")
+        except Exception:
+            pass
+            
+    res = [
+        f"Today is {date_str} (Week {week_num}, Day {day_num} of the year).",
+    ]
+    if upcoming_lines:
+        res.append("Upcoming schedule items:")
+        res.extend(upcoming_lines)
+    else:
+        res.append("Your schedule is clear for today with no pending events or alerts.")
+    return "\n".join(res)
+
+
 def reminder(parameters: dict = None, **kwargs) -> str:
     params = parameters if isinstance(parameters, dict) else {}
     action = params.get("action", "set").lower().strip()
@@ -242,7 +281,11 @@ def reminder(parameters: dict = None, **kwargs) -> str:
     hours = float(params.get("hours", 0) or 0)
     reminder_id = params.get("id") or params.get("reminder_id") or ""
     
-    if action in ("set", "create", "add"):
+    if action in ("time", "current_time", "what_time", "clock"):
+        return check_time()
+    elif action in ("calendar", "date", "today", "schedule", "events"):
+        return check_calendar()
+    elif action in ("set", "create", "add"):
         return set_reminder(message=message, time_str=time_str, minutes=minutes, seconds=seconds, hours=hours)
     elif action in ("list", "show", "get"):
         return list_reminders()

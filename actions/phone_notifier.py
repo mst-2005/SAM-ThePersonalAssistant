@@ -113,20 +113,28 @@ def call_user_phone(message: str, phone_number: Optional[str] = None) -> str:
         except Exception as e:
             print(f"[PhoneNotifier] Twilio call failed: {e}")
 
-    # 2. Windows Phone Link / System Tel Protocol
-    if _OS == "Windows":
-        try:
-            # Trigger tel: URI which opens Windows Phone Link to place the call
-            encoded_uri = f"tel:{urllib.parse.quote(target_number)}"
+    # 2. System Tel Protocol / Phone Link / FaceTime Continuity
+    try:
+        encoded_uri = f"tel:{urllib.parse.quote(target_number)}"
+        if _OS == "Windows":
             os.startfile(encoded_uri)
             return (
                 f"Calling {target_number} via Windows Phone Link, sir. "
                 f"Spoken message queued: '{message}'."
             )
-        except Exception as we:
-            return f"Could not initiate call via Phone Link: {we}"
-            
-    return f"Phone call queued for {target_number}: '{message}'."
+        elif _OS == "Darwin":
+            # macOS opens FaceTime / iPhone Cellular Continuity
+            subprocess.run(["open", encoded_uri], capture_output=True)
+            return (
+                f"Calling {target_number} via iPhone / FaceTime Continuity, sir. "
+                f"Reason: '{message}'."
+            )
+        else:
+            # Linux default handler
+            subprocess.run(["xdg-open", encoded_uri], capture_output=True)
+            return f"Calling {target_number} via system telephony handler, sir. Message: '{message}'."
+    except Exception as call_err:
+        return f"Could not initiate native call for {target_number}: {call_err}"
 
 
 def send_phone_sms(message: str, phone_number: Optional[str] = None) -> str:

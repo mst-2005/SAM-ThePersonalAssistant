@@ -448,7 +448,7 @@ def main():
                         t_res = func(t_args_dict)
                         
                         # Direct return for clean tools to eliminate double-LLM latency
-                        direct_tools = {"open_app", "autonomous_task", "background_monitor", "dev_agent", "code_helper", "file_controller", "computer_settings", "system_status", "reminder", "phone_notifier"}
+                        direct_tools = {"open_app", "autonomous_task", "background_monitor", "dev_agent", "code_helper", "file_controller", "computer_settings", "system_status", "reminder", "phone_notifier", "emotional_support"}
                         if t_name in direct_tools:
                             content = str(t_res).strip() or f"{t_name} completed, sir."
                         else:

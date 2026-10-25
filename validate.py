@@ -33,7 +33,7 @@ def main() -> int:
             errors.append(f"missing required file: {rel}")
 
     for path in ROOT.rglob("*.py"):
-        if any(part in {"__pycache__", ".git", "tests"} for part in path.parts):
+        if any(part in {"__pycache__", ".git", "tests", ".venv", "venv"} for part in path.parts):
             continue
         try:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -50,7 +50,7 @@ def main() -> int:
             errors.append(f"invalid config/api_keys.json: {exc}")
 
     for path in ROOT.rglob("*"):
-        if not path.is_file() or any(part in {"__pycache__", ".git"} for part in path.parts):
+        if not path.is_file() or any(part in {"__pycache__", ".git", ".venv", "venv"} for part in path.parts):
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")

@@ -259,11 +259,27 @@ def build_project(
     for name, line_count in created_files:
         lines.append(f"  - {name} ({line_count} lines)")
     
-    if errors:
-        lines.append("  [WARNINGS]:")
-        for err in errors:
-            lines.append(f"  - {err}")
-            
+    # Step 4: Outbound Cell Phone Alert (Calls or sends SMS if doubts/errors occur or on completion)
+    try:
+        from actions.phone_notifier import call_user_phone, send_phone_sms, _load_config
+        p_cfg = _load_config()
+        if p_cfg.get("user_phone_number"):
+            if errors:
+                doubt_msg = (
+                    f"Hello {salutation}, this is SAM calling regarding your project '{project_name}'. "
+                    f"I encountered a question or doubt on {len(errors)} file(s): {', '.join(errors[:2])}. "
+                    f"Please review the console or reply to guide me."
+                )
+                call_user_phone(message=doubt_msg)
+            else:
+                comp_msg = (
+                    f"Good day {salutation}. SAM has finished building your project '{project_name}' "
+                    f"with {len(created_files)} files at {base_path.name}. All verifications passed."
+                )
+                call_user_phone(message=comp_msg)
+    except Exception as phone_err:
+        print(f"[DevAgent] Phone notification notice: {phone_err}")
+
     lines.append(f"\n[VERIFICATION]:\n{test_output[:300]}")
     return "\n".join(lines)
 

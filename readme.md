@@ -37,10 +37,11 @@ Whether you need an assistant to manage your PC files, an empathetic companion t
 - **Direct Phone Connectivity**: Pair your mobile device via Twilio Voice API or Windows Phone Link.
 - **Automated Alerts**: SAM can place an outbound voice call or send SMS/WhatsApp notifications to your personal cell phone the moment an overnight build finishes or if critical attention is required.
 
-### 4. 💖 Emotional Intelligence & SAM Care
-- **Empathetic Partner**: Detects stress, anxiety, exhaustion, or sadness and responds with genuine care, reassurance, and warmth.
-- **Wellness Check-ins**: Inquires gently about your rest, hydration, and physical comfort.
-- **Supportive Actions**: Offers to dim display brightness, play soothing audio, set rest reminders, or handle remaining desktop chores so you can take a break.
+### 4. 💖 Full Spectrum Emotional Intelligence & SAM Care (`emotional_support`)
+- **Human Emotional Resonance**: Responds with genuine empathy and authentic human connection across all emotional states—celebrates wins and shared happiness enthusiastically, provides soothing presence during sadness, offers non-judgmental listening during anger, and grounds you during anxiety.
+- **Mood-Lifting & De-Stressing**: Lights up your mood with cheerful humor, guided 4-7-8 breathing exercises, and instant relaxing/celebration soundtrack playback via YouTube.
+- **Mood & Wellness Tracking**: Logs emotional check-ins, tracks mood history over time, and provides wellness trends on demand.
+- **Supportive Desktop Routines**: Offers to dim display brightness, set restful stretch/hydration reminders, or take over PC chores so you can pause and recharge.
 
 ### 5. 🗄️ Full PC Data Mastery & File Operations (`file_controller`)
 - **Deep Drive Access**: Scan, search, read, write, move, organize, and summarize files across all local drives (`C:`, `D:`, etc.).
@@ -188,7 +189,11 @@ SAM-ThePersonalAssistant/
 | **Project Status** | *"Hey Sam, how is my overnight project coming along?"* |
 | **PC Health & Telemetry** | *"Hey Sam, what's my CPU and RAM usage right now?"* |
 | **File Operations** | *"Hey Sam, find all PDF files in my Downloads folder modified this week."* |
-| **Emotional Support** | *"Hey Sam, I had a really exhausting and stressful day."* |
+| **Emotional Support (Sad/Stress)** | *"Hey Sam, I had a really exhausting and stressful day."* |
+| **Celebrating Success & Joy** | *"Hey Sam, I got the job! I'm so happy!"* |
+| **Mood Lightener & Humor** | *"Hey Sam, light up my mood with something cheerful."* |
+| **Guided Breathing** | *"Hey Sam, help me relax with a breathing exercise."* |
+| **Mood Wellness History** | *"Hey Sam, how has my mood been lately?"* |
 | **Wellness Reminders** | *"Hey Sam, remind me to drink water and take a stretch in 45 minutes."* |
 | **Phone Call Alerts** | *"Hey Sam, test my phone connection and call my cell phone when the project finishes."* |
 | **Screen Perception** | *"Hey Sam, take a look at my screen and explain what's in this diagram."* |

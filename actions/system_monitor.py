@@ -198,3 +198,9 @@ class SystemMonitor:
             self._record("gpu")
 
         return " ".join(alerts) if alerts else None
+
+
+def system_monitor(parameters: dict = None, player=None, speak=None) -> str:
+    """Entry point for system_monitor tool — delegates to system_status."""
+    from actions.system_status import system_status
+    return system_status(parameters, player=player, speak=speak)

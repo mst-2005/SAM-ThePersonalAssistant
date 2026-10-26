@@ -66,7 +66,8 @@ def _get_gemini_key() -> str | None:
     try:
         import json as _json
         with open(BASE_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
-            return _json.load(f).get("gemini_api_key")
+            cfg = _json.load(f)
+            return cfg.get("gemini_api_key") or cfg.get("api_key")
     except Exception:
         return None
 

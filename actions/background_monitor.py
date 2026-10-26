@@ -14,11 +14,13 @@ from core.autonomous_agent import AutonomousAgent, STATUS_DONE, STATUS_FAILED, S
 def background_monitor(parameters: dict = None, **kwargs) -> str:
     params = parameters if isinstance(parameters, dict) else {}
     task_id = (params.get("task_id") or params.get("id") or "").strip()
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     
     tasks = AutonomousAgent.list_tasks()
     if not tasks:
         return (
-            "No active background projects are currently registered, sir. "
+            f"No active background projects are currently registered, {addr}. "
             "You can say 'build me an overnight project <description>' to start one anytime."
         )
     
@@ -55,7 +57,7 @@ def background_monitor(parameters: dict = None, **kwargs) -> str:
                     lines.append(line)
                     
             if done == total and total > 0:
-                lines.append("\n[SUCCESS] All deliverables for this project are 100% complete, sir!")
+                lines.append(f"\n[SUCCESS] All deliverables for this project are 100% complete, {addr}!")
             elif running:
                 lines.append("\n[ACTIVE] Project is actively executing right now.")
             else:
@@ -66,7 +68,7 @@ def background_monitor(parameters: dict = None, **kwargs) -> str:
             return f"Error loading task {target_id}: {e}"
             
     # Multiple tasks summary
-    lines = [f"Found {len(tasks)} background project(s), sir:\n"]
+    lines = [f"Found {len(tasks)} background project(s), {addr}:\n"]
     for t in tasks:
         tag = "[COMPLETE]" if t.get("status") == "complete" else ("[FAIL]" if t.get("failed", 0) > 0 else "[RUNNING]")
         lines.append(

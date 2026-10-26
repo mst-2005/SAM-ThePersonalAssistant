@@ -127,3 +127,9 @@ class ProactiveEngine:
             "- Do NOT call any tools.",
             "- If nothing genuinely useful comes to mind, stay silent (say nothing).",
         ])
+
+
+def proactive(parameters: dict = None, player=None, speak=None) -> str:
+    """Entry point for proactive check action."""
+    engine = ProactiveEngine()
+    return "Proactive monitoring engine is active."

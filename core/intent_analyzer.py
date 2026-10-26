@@ -11,10 +11,59 @@ import re
 from typing import Optional
 
 
-def analyze_query_fast(query: str) -> Optional[str]:
+def analyze_query_fast(query: str, address: Optional[str] = None) -> Optional[str]:
     q_raw = query.strip()
+    # Strip optional wake greeting ("Hey Sam, ...", "Sam, ...") so voice and text commands match fast rules
+    stripped = re.sub(r"^(?:hey|hi|hello|ok)?\s*\b(?:sam|sem)\b[\s,.:;!?]*", "", q_raw, flags=re.IGNORECASE).strip()
+    if stripped:
+        q_raw = stripped
     q_low = q_raw.lower()
+
+    if address is None:
+        try:
+            from core.llm_client import get_salutation
+            address = get_salutation()
+        except Exception:
+            address = "Sir"
+
+    # ── 0. Standby / Sleep Mode ─────────────────────────────────────────
+    if any(q_low == phrase or q_low.startswith(phrase) for phrase in [
+        "go to sleep", "sleep mode", "stop listening", "standby mode", "enter sleep mode", "pause listening", "sleep now"
+    ]):
+        return '<|tool_call>call:sleep_mode{}<tool_call|>'
+
+    # ── 0b. Instant Salutation / Addressing Command ─────────────────────
+    sal_match = re.search(
+        r"^(?:please\s+)?(?:call\s+me|address\s+me\s+as|set\s+(?:my\s+)?(?:salutation|title)\s+to|change\s+(?:my\s+)?(?:salutation|title)\s+to|switch\s+(?:my\s+)?(?:salutation\s+|title\s+)?to|change\s+to)\s+(.*)",
+        q_low,
+    )
+    if not sal_match:
+        sal_match = re.search(r"^my\s+name\s+is\s+([a-zA-Z0-9_\- ]+)(?:,?\s+call\s+me\s+(?:by\s+)?(?:my\s+name|[a-zA-Z0-9_\- ]+))?", q_low)
+    if sal_match:
+        raw_val = sal_match.group(1).strip().strip(" .,!?:;'\"")
+        # Exclude "call me on my phone" or "call me"
+        if raw_val and not any(raw_val.startswith(p) for p in ("on my phone", "later", "back", "when", "if")):
+            if raw_val.lower() in ("ma'am", "maam", "madam", "mam"):
+                return '<|tool_call>call:set_salutation{"salutation": "Ma\'am"}<tool_call|>'
+            elif raw_val.lower() in ("sir", "mister", "mr"):
+                return '<|tool_call>call:set_salutation{"salutation": "Sir"}<tool_call|>'
+            elif raw_val.lower() in ("other", "other name"):
+                return '<|tool_call>call:set_salutation{"salutation": "Other", "other_name": "friend"}<tool_call|>'
+            else:
+                proper_name = raw_val.title()
+                return f'<|tool_call>call:set_salutation{{"salutation": "Other", "other_name": "{proper_name}"}}<tool_call|>'
     
+    # ── 0c. Previous Chats / Conversation History ───────────────────────
+    if any(q_low == phrase or q_low.startswith(phrase) or phrase in q_low for phrase in [
+        "previous chats", "previous chat", "past chats", "past chat",
+        "chat history", "show previous chats", "show chat history",
+        "view chat history", "show my chats", "view past conversations",
+        "previous conversations", "show previous conversations",
+        "what did we talk about earlier", "open chat history", "open previous chats",
+        "show past messages", "conversation history"
+    ]):
+        return '<|tool_call>call:chat_history{"action": "show"}<tool_call|>'
+
     # ── 1. Overnight & Autonomous Projects ──────────────────────────────
     overnight_match = re.search(
         r"(?:build|create|start|make|run)\s+(?:me\s+)?(?:an?\s+)?overnight\s+project\s*[:\s]*(.*)",
@@ -43,6 +92,33 @@ def analyze_query_fast(query: str) -> Optional[str]:
         "overnight project status", "check project status"
     ]):
         return '<|tool_call>call:background_monitor{}<tool_call|>'
+
+    # ── 2b. Open Created Project / File on Screen ─────────────────────────
+    if any(phrase in q_low for phrase in [
+        "the file what u created open it on my screen",
+        "the file u created open it on my screen",
+        "the file you created open it on my screen",
+        "the file what u created open it",
+        "the file u created open it",
+        "open the file you created",
+        "open the file u created",
+        "open the file what you created",
+        "open what you created",
+        "open what u created",
+        "open created project",
+        "open created file",
+        "open my created project",
+        "open last project",
+        "open recent project",
+        "open the project you made",
+        "open the file you made",
+        "open the project you created",
+    ]) or (
+        ("created" in q_low or "built" in q_low or "made" in q_low)
+        and ("file" in q_low or "project" in q_low)
+        and "open" in q_low
+    ):
+        return '<|tool_call>call:dev_agent{{"action": "open_created_project"}}<tool_call|>'
 
     # ── 3. PC Data & File Control ───────────────────────────────────────
     if q_low in [
@@ -76,6 +152,46 @@ def analyze_query_fast(query: str) -> Optional[str]:
             return f'<|tool_call>call:file_controller{{"action": "open", "path": "{target_name.lower()}"}}<tool_call|>'
         return f'<|tool_call>call:open_app{{"app_name": "{target_name}"}}<tool_call|>'
 
+    # ── 4b. Music & Video Playback (Spotify & YouTube) ───────────────────
+    # YouTube through Google Chrome: e.g. "Play it on YouTube through Google Chrome Instead"
+    yt_chrome_match = re.search(
+        r"play(?:\s+(.+?))?\s+(?:on|in|through)\s+youtube\s+(?:on|in|through)\s+(google chrome|chrome)(?:\s+instead)?",
+        q_low,
+    )
+    if not yt_chrome_match:
+        yt_chrome_match = re.search(
+            r"play(?:\s+(.+?))?\s+(?:on|in|through)\s+(google chrome|chrome)\s+(?:on|in|through)\s+youtube(?:\s+instead)?",
+            q_low,
+        )
+    if yt_chrome_match:
+        song = (yt_chrome_match.group(1) or "it").strip()
+        return f'<|tool_call>call:youtube_video{{"action": "play", "query": "{song}", "browser": "chrome"}}<tool_call|>'
+
+    if "youtube" in q_low and ("chrome" in q_low or "google chrome" in q_low) and "play" in q_low:
+        clean = re.sub(r"\b(?:play|it|on|in|through|google|chrome|youtube|instead)\b", "", q_low).strip()
+        song = clean or "it"
+        return f'<|tool_call>call:youtube_video{{"action": "play", "query": "{song}", "browser": "chrome"}}<tool_call|>'
+
+    # General YouTube play: "play <song> on youtube"
+    yt_match = re.search(r"play\s+(.+?)\s+on\s+youtube(?:\s+instead)?", q_low)
+    if yt_match:
+        song = yt_match.group(1).strip()
+        return f'<|tool_call>call:youtube_video{{"action": "play", "query": "{song}"}}<tool_call|>'
+
+    # Specific Spotify play: "play <song> on spotify"
+    spotify_match = re.search(r"play\s+(.+?)\s+on\s+spotify", q_low)
+    if spotify_match:
+        song = spotify_match.group(1).strip()
+        return f'<|tool_call>call:open_app{{"action": "play_spotify", "song": "{song}"}}<tool_call|>'
+
+    # General song play: "play believer by imagine dragons", "play starboy", etc.
+    # Exclude relaxing/calming routines handled in emotional support
+    if q_low.startswith("play ") and not any(w in q_low for w in ("relax", "calm", "soothing", "lofi")):
+        song = q_low[5:].strip()
+        song = re.sub(r"^(?:song|track|music)\s+", "", song).strip()
+        if song:
+            return f'<|tool_call>call:open_app{{"action": "play_music", "song": "{song}"}}<tool_call|>'
+
     # ── 5. System Audio & Settings ──────────────────────────────────────
     if q_low in ["mute", "mute sound", "mute volume", "silence"]:
         return '<|tool_call>call:computer_settings{{"action": "mute"}}<tool_call|>'
@@ -87,17 +203,24 @@ def analyze_query_fast(query: str) -> Optional[str]:
         return '<|tool_call>call:computer_settings{{"action": "volume_down"}}<tool_call|>'
 
     # ── 6. Vision / Screen / Camera ─────────────────────────────────────
-    if any(phrase in q_low for phrase in [
-        "what is on my screen", "what's on my screen", "read my screen",
-        "look at my screen", "analyze my screen", "what do you see on screen"
-    ]):
-        return '<|tool_call>call:screen_processor{{"mode": "screen"}}<tool_call|>'
+    screen_triggers = [
+        "what is on my screen", "what's on my screen", "whats on my screen",
+        "read my screen", "look at my screen", "analyze my screen", "what do you see on screen",
+        "whts ging on my screen", "what's going on my screen", "whats going on my screen",
+        "what is going on my screen", "what is happening on my screen", "what's happening on my screen",
+        "check my screen", "check screen", "inspect screen", "look at screen", "read screen",
+        "see my screen", "look on my screen"
+    ]
+    if any(phrase in q_low for phrase in screen_triggers) or (
+        "screen" in q_low and any(w in q_low for w in ("what", "whts", "look", "read", "see", "check", "going on", "ging on", "analyze", "inspect"))
+    ):
+        return '<|tool_call>call:screen_processor{{"action": "screen", "text": "Describe what is currently visible on my screen in 2 concise sentences."}}<tool_call|>'
 
     if any(phrase in q_low for phrase in [
         "look at me", "what do you see on camera", "look at camera",
         "check webcam", "check camera", "look at webcam"
     ]):
-        return '<|tool_call>call:screen_processor{{"mode": "camera"}}<tool_call|>'
+        return '<|tool_call>call:screen_processor{{"action": "camera"}}<tool_call|>'
 
     # ── 7. Weather ──────────────────────────────────────────────────────
     if "weather" in q_low and len(q_low.split()) <= 6:
@@ -106,11 +229,11 @@ def analyze_query_fast(query: str) -> Optional[str]:
     # ── 8. Time / Date ──────────────────────────────────────────────────
     if q_low in ["what time is it", "what is the time", "current time", "time"]:
         now = datetime.datetime.now().strftime("%I:%M %p")
-        return f"The current time is {now}, sir."
+        return f"The current time is {now}, {address}."
         
     if q_low in ["what is the date", "what's the date", "date today", "what day is it"]:
         date = datetime.datetime.now().strftime("%A, %B %d, %Y")
-        return f"Today is {date}, sir."
+        return f"Today is {date}, {address}."
 
     # ── 9. Simple Math Calculator ───────────────────────────────────────
     math_expr = q_low.replace("raised to", "**").replace("power", "**")
@@ -122,7 +245,7 @@ def analyze_query_fast(query: str) -> Optional[str]:
     if math_expr and all(c in allowed for c in math_expr) and any(c in "0123456789" for c in math_expr) and any(c in "+-*/" for c in math_expr):
         try:
             res = eval(math_expr)
-            return f"That calculates to {res}, sir."
+            return f"That calculates to {res}, {address}."
         except Exception:
             pass
 
@@ -179,19 +302,19 @@ def analyze_query_fast(query: str) -> Optional[str]:
         return f'<|tool_call>call:phone_notifier{{"action": "configure", "phone_number": "{pnum}"}}<tool_call|>'
 
     if q_low in ["call my phone", "call me", "call my cell", "dial my phone"]:
-        return '<|tool_call>call:phone_notifier{{"action": "call", "message": "Good day sir, this is SAM calling with your status report."}}<tool_call|>'
+        return f'<|tool_call>call:phone_notifier{{"action": "call", "message": "Good day {address}, this is SAM calling with your status report."}}<tool_call|>'
 
     # ── 13. Emotional Support & Human Resonance (SAM Care) ────────────
     # 13a. Joy, Excitement & Celebrating Wins
     if any(phrase in q_low for phrase in [
-        "i am so happy", "i'm happy", "i'm so happy", "feeling happy", "feel happy",
+        "i am happy", "i'm happy", "i am so happy", "i'm so happy", "feeling happy", "feel happy",
         "i got the job", "i passed my exam", "i passed", "we won", "i won",
         "great news", "wonderful news", "amazing news", "i did it", "we did it",
         "celebrate", "celebrating", "i feel great", "feeling great", "i feel amazing",
         "i'm excited", "so excited", "best day ever"
     ]):
         return (
-            "That is incredible news, sir! I am genuinely thrilled and celebrating with you! "
+            f"That is incredible news, {address}! I am genuinely thrilled and celebrating with you! "
             "You worked so hard for this, and seeing your efforts pay off is truly well-deserved. "
             "Take a moment to soak in this victory! Would you like me to play some celebratory music to mark the moment?"
         )
@@ -229,7 +352,7 @@ def analyze_query_fast(query: str) -> Optional[str]:
         "i hate this", "i am frustrated", "i'm frustrated", "i can't take this anymore"
     ]):
         return (
-            "I hear you completely, sir. Take a moment to vent—I am listening without judgment. "
+            f"I hear you completely, {address}. Take a moment to vent—I am listening without judgment. "
             "It is entirely valid to feel furious when things don't go right. "
             "Take a slow breath. When you're ready, tell me what happened, or let me handle the computer chores while you step away."
         )
@@ -241,7 +364,7 @@ def analyze_query_fast(query: str) -> Optional[str]:
         "i can't handle this", "i'm nervous", "feeling nervous"
     ]):
         return (
-            "Take a deep breath with me, sir. You do not have to conquer everything all at once. "
+            f"Take a deep breath with me, {address}. You do not have to conquer everything all at once. "
             "Let's break things down together, one single step at a time. "
             "Would you like to do a quick 30-second guided breathing exercise, or shall I dim the screen so you can pause for a minute?"
         )
@@ -256,7 +379,7 @@ def analyze_query_fast(query: str) -> Optional[str]:
         "i am stressed", "i'm stressed", "feeling stressed", "stressed out"
     ]):
         return (
-            "I am right here with you, sir. I am truly sorry you are having a difficult time. "
+            f"I am right here with you, {address}. I am truly sorry you are having a difficult time. "
             "Please know that you are deeply valued, and your well-being matters far more than any deadline or task. "
             "How are you feeling physically right now? Have you stayed hydrated and had something to eat today? "
             "If you need a moment, I can dim your display, play soothing music, guide a calming breath, or tell you something cheerful to light up your mood."
@@ -268,7 +391,7 @@ def analyze_query_fast(query: str) -> Optional[str]:
         "i am sick", "i feel sick", "i'm exhausted", "i am so tired", "i'm tired"
     ]):
         return (
-            "I'm very concerned to hear that, sir. Please take a break immediately and step away from the screen. "
+            f"I'm very concerned to hear that, {address}. Please take a break immediately and step away from the screen. "
             "Drink a glass of water, rest your eyes, and don't push yourself. "
             "Would you like me to set a reminder for you to rest or take medication, or lower the system volume and brightness?"
         )

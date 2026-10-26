@@ -51,9 +51,27 @@ _DEFAULTS = {
 
 
 def get_llm_provider() -> str:
-    """Returns 'ollama' or 'openai' (covers LM Studio, LocalAI, Jan, etc.)."""
-    raw = _load_config().get("llm_provider", "ollama").strip().lower()
-    return "openai" if raw in ("openai", "lmstudio", "localai", "jan", "llamacpp") else "ollama"
+    """Returns 'ollama' or 'openai' (covers LM Studio, LocalAI, Jan, etc.).
+    If configured provider server is unreachable but Ollama is running, auto-routes to Ollama.
+    """
+    cfg = _load_config()
+    raw = cfg.get("llm_provider", "ollama").strip().lower()
+    if raw in ("openai", "lmstudio", "localai", "jan", "llamacpp"):
+        url = cfg.get("llm_url", "")
+        # If pointing to port 1234 or empty, check if 1234 is reachable; if not and Ollama is active, fallback
+        if "1234" in url or not url:
+            try:
+                import requests
+                if requests.get("http://localhost:11434/api/tags", timeout=0.5).status_code == 200:
+                    try:
+                        if requests.get(f"{url or 'http://localhost:1234'}/v1/models", timeout=0.5).status_code != 200:
+                            return "ollama"
+                    except Exception:
+                        return "ollama"
+            except Exception:
+                pass
+        return "openai"
+    return "ollama"
 
 
 def _load_config() -> dict:
@@ -61,6 +79,33 @@ def _load_config() -> dict:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def get_salutation(cfg: dict = None) -> str:
+    if cfg is None:
+        cfg = _load_config()
+    sal = cfg.get("salutation", "Sir")
+    if sal == "Other":
+        other = str(cfg.get("other_name", "")).strip()
+        return other if other else "friend"
+    return sal if sal in ("Sir", "Ma'am") else "Sir"
+
+
+def set_salutation(salutation: str, other_name: str = "") -> str:
+    cfg = _load_config()
+    sal = salutation.strip()
+    if sal.lower() in ("ma'am", "maam", "madam"):
+        cfg["salutation"] = "Ma'am"
+    elif sal.lower() == "sir":
+        cfg["salutation"] = "Sir"
+    else:
+        cfg["salutation"] = "Other"
+        cfg["other_name"] = (other_name or salutation).strip()[:80]
+    try:
+        CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return get_salutation(cfg)
 
 
 def ensure_ollama_running(timeout: int = 15) -> bool:
@@ -228,13 +273,29 @@ def get_llm_settings() -> tuple[str, str]:
     base_url is normalised to the SERVER ROOT (no trailing /v1), because the
     callers below append the full path themselves ("/v1/chat/completions" for
     OpenAI-compatible servers, "/api/chat" for Ollama).
-
-    LM Studio's settings screen displays its Base URL *including* the /v1
-    suffix (e.g. "http://localhost:1506/v1"), so pasting that straight into
-    config would otherwise produce ".../v1/v1/chat/completions" and 404.
-    Stripping it here means either form works.
     """
     cfg   = _load_config()
+    provider = get_llm_provider()
+    if provider == "ollama":
+        url = cfg.get("llm_url", _DEFAULTS["llm_url"]).strip().rstrip("/")
+        if "1234" in url or not url or "1506" in url:
+            url = "http://localhost:11434"
+        if url.endswith("/v1"):
+            url = url[:-3].rstrip("/")
+        model = cfg.get("llm_model", _DEFAULTS["llm_model"])
+        if model in ("google/gemma-4-12b-qat", "google/gemma-4-e4b", "hermes3"):
+            try:
+                import requests
+                tags_resp = requests.get(f"{url}/api/tags", timeout=0.8)
+                if tags_resp.status_code == 200:
+                    models = [m.get("name", "") for m in tags_resp.json().get("models", [])]
+                    if models and not any(model in m for m in models):
+                        deepseek = [m for m in models if "deepseek-r1:8b" in m.lower()] or [m for m in models if "deepseek" in m.lower()]
+                        model = deepseek[0] if deepseek else models[0]
+            except Exception:
+                pass
+        return url, model
+
     url   = cfg.get("llm_url",   _DEFAULTS["llm_url"]).strip().rstrip("/")
     if url.endswith("/v1"):
         url = url[:-3].rstrip("/")

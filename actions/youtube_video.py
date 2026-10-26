@@ -58,18 +58,37 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
-
-
-def _open_url(url: str) -> None:
     try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            return cfg.get("gemini_api_key") or cfg.get("api_key") or ""
+    except Exception:
+        return ""
+
+
+_LAST_PLAYED_QUERY = "Believer by Imagine Dragons"
+
+
+def _open_url(url: str, browser: str = None) -> None:
+    try:
+        browser_name = (browser or "").lower().strip()
         if is_mac():
-            subprocess.Popen(["open", url])
+            if browser_name in ("chrome", "google chrome"):
+                subprocess.Popen(["open", "-a", "Google Chrome", url])
+            elif browser_name in ("safari",):
+                subprocess.Popen(["open", "-a", "Safari", url])
+            else:
+                subprocess.Popen(["open", url])
         elif is_linux():
-            subprocess.Popen(["xdg-open", url])
+            if browser_name in ("chrome", "google chrome"):
+                subprocess.Popen(["google-chrome", url])
+            else:
+                subprocess.Popen(["xdg-open", url])
         else:
-            subprocess.Popen(["cmd", "/c", "start", "", url], shell=False)
+            if browser_name in ("chrome", "google chrome"):
+                subprocess.Popen(["cmd", "/c", "start", "chrome", url], shell=False)
+            else:
+                subprocess.Popen(["cmd", "/c", "start", "", url], shell=False)
     except Exception as e:
         print(f"[YouTube] ⚠️ open_url failed: {e}")
 
@@ -278,21 +297,38 @@ def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
         return []
 
 def _handle_play(parameters: dict, player) -> str:
-    query = parameters.get if isinstance(parameters, dict) else {}.get if isinstance(parameters, dict) else {}.get("query", "").strip()
-    if not query:
-        return "Please tell me what you'd like to watch, sir."
+    global _LAST_PLAYED_QUERY
+    params = parameters if isinstance(parameters, dict) else {}
+    query = (
+        params.get("query")
+        or params.get("song")
+        or params.get("title")
+        or params.get("name")
+        or ""
+    ).strip()
+    browser = (params.get("browser") or "").strip().lower()
+
+    if not query or query.lower() in ("it", "last_played", "this", "that"):
+        query = _LAST_PLAYED_QUERY or "Believer by Imagine Dragons"
+    else:
+        _LAST_PLAYED_QUERY = query
 
     if player:
         player.write_log(f"[YouTube] Searching: {query}")
 
     print(f"[YouTube] 🔍 Scraping first non-Shorts video for: {query}")
 
+    browser_label = "Google Chrome" if browser in ("chrome", "google chrome") else "your browser"
     video_url = _scrape_first_video_url(query)
+    from core.llm_client import get_salutation
+    addr = get_salutation()
 
     if video_url:
-        print(f"[YouTube] ▶️ Opening: {video_url}")
-        _open_url(video_url)
-        return f"Playing: {query}"
+        print(f"[YouTube] ▶️ Opening: {video_url} in {browser_label}")
+        _open_url(video_url, browser=browser)
+        if browser in ("chrome", "google chrome"):
+            return f"I am opening Google Chrome to play {query} on YouTube right now, {addr}."
+        return f"I am opening YouTube right now to play {query} for you, {addr}."
 
     print(f"[YouTube] ⚠️ Scrape failed, opening filtered search page")
     fallback_url = (
@@ -300,8 +336,10 @@ def _handle_play(parameters: dict, player) -> str:
         f"?search_query={quote_plus(query)}"
         f"&sp={_YT_VIDEO_FILTER}"
     )
-    _open_url(fallback_url)
-    return f"Opened YouTube search for: {query} (manual selection required)"
+    _open_url(fallback_url, browser=browser)
+    if browser in ("chrome", "google chrome"):
+        return f"I am opening Google Chrome to search for {query} on YouTube right now, {addr}."
+    return f"I am opening YouTube search for {query} right now, {addr}."
 
 
 def _handle_summarize(parameters: dict, player, speak) -> str:

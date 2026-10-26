@@ -17,6 +17,7 @@ Supported types:
 """
 
 import os
+import sys
 import re
 import json
 import shutil
@@ -25,20 +26,36 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
+def _load_config() -> dict:
+    try:
+        config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def _get_api_key() -> str:
-    config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    cfg = _load_config()
+    return cfg.get("gemini_api_key") or cfg.get("api_key") or ""
 
 
 def _gemini_client():
     from google import genai
     _c = genai.Client(api_key=_get_api_key())
-    _model = _load_config().get("gemini_model", "gemini-3.5-flash")
+    preferred = _load_config().get("gemini_model", "gemini-3.5-flash")
+    candidates = [preferred, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]
 
     class _W:
         def generate_content(self, contents):
-            return _c.models.generate_content(model=_model, contents=contents)
+            last_err = None
+            for m in candidates:
+                try:
+                    return _c.models.generate_content(model=m, contents=contents)
+                except Exception as e:
+                    last_err = e
+            if last_err:
+                raise last_err
 
     return _W()
 
@@ -189,7 +206,7 @@ def _process_pdf(path: Path, action: str, params: dict, speak=None) -> str:
                 with open(path, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
                     for page in reader.pages:
-                        text += page.extract_text() + "\n"
+                        text += (page.extract_text() or "") + "\n"
             except ImportError:
                 return ""
         return text[:max_chars]
@@ -296,13 +313,13 @@ def _process_text_doc(path: Path, file_type: str, action: str,
     }
 
     if action not in prompt_map:
-
-        action  = "custom"
-        instruction = action
+        prompt = f"{instruction or action}\n\n{content[:40000]}"
+    else:
+        prompt = prompt_map[action]
 
     try:
         model    = _gemini_client()
-        response = model.generate_content(prompt_map[action])
+        response = model.generate_content(prompt)
         result   = response.text.strip()
         if len(result) > 600 and params.get("save", True):
             out = _output_path(path, action, ".txt")
@@ -394,8 +411,12 @@ def _process_data(path: Path, file_type: str, action: str,
         asc = params.get("ascending", True)
         try:
             sorted_df = df.sort_values(col, ascending=asc)
-            out = _output_path(path, "sorted", path.suffix)
-            sorted_df.to_csv(out, index=False)
+            if path.suffix.lower() in (".xlsx", ".xls"):
+                out = _output_path(path, "sorted", ".xlsx")
+                sorted_df.to_excel(out, index=False)
+            else:
+                out = _output_path(path, "sorted", ".csv")
+                sorted_df.to_csv(out, index=False)
             return f"Sorted by '{col}'. Saved: {out.name}"
         except Exception as e:
             return f"Sort failed: {e}"
@@ -462,7 +483,7 @@ def _process_code(path: Path, action: str, params: dict, speak=None) -> str:
         if ext == "py":
             try:
                 result = subprocess.run(
-                    ["python", str(path)],
+                    [sys.executable, str(path)],
                     capture_output=True, text=True, timeout=30
                 )
                 out = result.stdout or result.stderr
@@ -538,9 +559,11 @@ def _process_audio(path: Path, action: str, params: dict, speak=None) -> str:
                 "ogg": "audio/ogg", "m4a": "audio/mp4",
                 "aac": "audio/aac", "flac": "audio/flac",
             }.get(path.suffix.lstrip(".").lower(), "audio/mpeg")
+            from google.genai import types
+            audio_part = types.Part.from_bytes(data=content, mime_type=mime)
             response = model.generate_content([
                 "Transcribe all speech in this audio file accurately.",
-                {"mime_type": mime, "data": content}
+                audio_part
             ])
             result = response.text.strip()
             if params.get("save", True):
@@ -777,8 +800,10 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
 
     return f"Unknown PPTX action: '{action}'. Try: summarize, extract_text, analyze"
 
-def file_processor(parameters: dict, player=None, speak=None) -> str:
-    file_path_str = parameters.get if isinstance(parameters, dict) else {}.get if isinstance(parameters, dict) else {}.get("file_path", "").strip()
+def file_processor(parameters: dict = None, player=None, speak=None) -> str:
+    if not isinstance(parameters, dict):
+        parameters = {"file_path": str(parameters or "")}
+    file_path_str = str(parameters.get("file_path") or parameters.get("path") or "").strip()
     if not file_path_str:
         return "No file path provided."
 
@@ -789,8 +814,8 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
         return f"Path is not a file: {file_path_str}"
 
     file_type   = _detect_type(path)
-    action      = (parameters.get if isinstance(parameters, dict) else {}.get if isinstance(parameters, dict) else {}.get("action") or "").lower().strip()
-    instruction = parameters.get if isinstance(parameters, dict) else {}.get if isinstance(parameters, dict) else {}.get("instruction", "")
+    action      = str(parameters.get("action") or "").lower().strip()
+    instruction = str(parameters.get("instruction") or "").strip()
     params      = {**parameters, "instruction": instruction}
 
     log_msg = f"[FileProcessor] {file_type.upper()} | {path.name} | action={action or 'auto'}"

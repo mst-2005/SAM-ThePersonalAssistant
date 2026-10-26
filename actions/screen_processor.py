@@ -83,7 +83,7 @@ def _get_api_key() -> str:
 def _get_os() -> str:
     return _load_config().get("os_system", "windows").lower()
 
-_LIVE_MODEL         = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+_LIVE_MODEL         = "models/gemini-2.5-flash-native-audio-latest"
 _CHANNELS           = 1
 _RECEIVE_SAMPLE_RATE = 24_000
 _CHUNK_SIZE         = 1_024
@@ -420,52 +420,76 @@ def _ensure_session(player=None) -> None:
             _session._player = player
 
 
-def screen_process(
-    parameters:     dict,
-    response=None,
-    player=None,
-    session_memory=None,
-) -> bool:
-
-    params    = parameters or {}
-    user_text = (params.get("text") or params.get("user_text") or "").strip()
-    angle     = params.get("angle", "screen").lower().strip()
-
-    if not user_text:
-        print("[Vision] ⚠️  No question provided — aborting")
-        return False
-
-    print(f"[Vision] ▶ angle={angle!r}  question='{user_text[:80]}'")
-
-    try:
-        _ensure_session(player=player)
-    except Exception as e:
-        print(f"[Vision] ❌ Could not start session: {e}")
-        return False
-
+def analyze_screen_sync(user_text: str = "", angle: str = "screen", player=None) -> str:
+    """Takes a screenshot (or webcam frame) and uses Gemini vision to describe it directly in <2s."""
     try:
         if angle == "camera":
             image_bytes, mime_type = _capture_camera()
-            print(f"[Vision] 📷 Camera: {len(image_bytes):,} bytes")
-            if player and hasattr(player, "start_camera_stream"):
-                try:
-                    player.start_camera_stream()
-                except Exception as _e:
-                    print(f"[Vision] ⚠️  Camera stream failed: {_e}")
-            elif player and hasattr(player, "show_camera_frame"):
+            if player and hasattr(player, "show_camera_frame"):
                 try:
                     player.show_camera_frame(image_bytes)
-                except Exception as _e:
-                    print(f"[Vision] ⚠️  Camera preview failed: {_e}")
+                except Exception:
+                    pass
         else:
             image_bytes, mime_type = _capture_screen()
-            print(f"[Vision] 🖥️  Screen: {len(image_bytes):,} bytes")
     except Exception as e:
-        print(f"[Vision] ❌ Capture error: {e}")
-        return False
+        return f"Could not capture display, sir: {e}"
 
-    _session.analyze(image_bytes, mime_type, user_text)
-    return True
+    api_key = _get_api_key()
+    if not api_key:
+        return "Gemini API key is not configured for screen analysis, sir."
+
+    question = (
+        user_text.strip()
+        or "Describe what is currently visible on my screen in 2-3 clear, natural sentences. Mention active applications, open documents, or website content. Keep it direct, concise, and conversational."
+    )
+
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=api_key, http_options=gtypes.HttpOptions(timeout=15000))
+        parts = [
+            gtypes.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            question,
+        ]
+        for v_model in ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]:
+            try:
+                resp = client.models.generate_content(
+                    model=v_model,
+                    contents=parts,
+                )
+                if resp.text and resp.text.strip():
+                    return resp.text.strip()
+            except Exception:
+                continue
+    except Exception as g_err:
+        return f"Screen vision processing note: {g_err}"
+
+    return "I looked at your screen, but could not retrieve a clear description right now, sir."
+
+
+def screen_process(
+    parameters:     dict = None,
+    response=None,
+    player=None,
+    session_memory=None,
+) -> str:
+    params    = parameters or {}
+    user_text = (
+        params.get("text")
+        or params.get("user_text")
+        or params.get("query")
+        or params.get("question")
+        or ""
+    ).strip()
+    angle     = (params.get("angle") or params.get("mode") or "screen").lower().strip()
+
+    print(f"[Vision] ▶ angle={angle!r}  question='{user_text[:80]}'")
+    if player:
+        player.write_log(f"[Vision] Inspecting {angle}...")
+
+    # Fast synchronous multimodal analysis
+    return analyze_screen_sync(user_text=user_text, angle=angle, player=player)
 
 
 screen_processor = screen_process

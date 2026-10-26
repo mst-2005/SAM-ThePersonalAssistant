@@ -112,8 +112,12 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            return cfg.get("gemini_api_key") or cfg.get("api_key") or ""
+    except Exception:
+        return ""
 
 
 def _get_gemini_model() -> str:
@@ -289,6 +293,12 @@ def _search(query: str) -> str:
             return _format_ddg(query, results)
     except Exception as e:
         print(f"[WebSearch] Snippet fallback failed: {e}")
+
+    try:
+        if _get_api_key():
+            return _gemini_search(query)
+    except Exception as e:
+        print(f"[WebSearch] Gemini search fallback failed: {e}")
 
     return "Web search is temporarily unavailable. Please try again shortly."
 

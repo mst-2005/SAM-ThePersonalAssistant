@@ -49,6 +49,7 @@ logs/
 memory/autonomous_tasks/
 memory/captures/
 memory/reminders.json
+memory/chat_history.json
 projects/
 scratch/
 

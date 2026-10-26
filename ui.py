@@ -22,6 +22,8 @@ else:
     _WIN_HIDE: dict = {}
 
 from PyQt6.QtCore import (
+    QEvent,
+    QObject,
     QPointF,
     QRectF,
     Qt,
@@ -36,14 +38,17 @@ from PyQt6.QtGui import (
     QDropEvent,
     QFont,
     QImage,
+    QKeyEvent,
     QKeySequence,
     QLinearGradient,
+    QNativeGestureEvent,
     QPainter,
     QPainterPath,
     QPen,
     QPixmap,
     QRadialGradient,
     QShortcut,
+    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -268,7 +273,12 @@ class CyberPanel(QWidget):
     def __init__(self, tag: str = "", parent=None):
         super().__init__(parent)
         self._tag = tag
+        self._font_scale = 1.0
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+
+    def set_zoom_factor(self, factor: float):
+        self._font_scale = factor
+        self.update()
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -309,9 +319,10 @@ class CyberPanel(QWidget):
         p.drawLine(QPointF(W - cut - 18, H), QPointF(W - cut, H))
 
         if self._tag:
-            p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            pt = max(6, int(round(7 * getattr(self, "_font_scale", 1.0))))
+            p.setFont(QFont("Courier New", pt, QFont.Weight.Bold))
             p.setPen(QPen(qcol(C.CYAN), 1))
-            p.drawText(QRectF(cut + 8, 4, W - cut * 2, 14),
+            p.drawText(QRectF(cut + 8, 4, W - cut * 2, max(14, int(round(14 * getattr(self, "_font_scale", 1.0))))),
                        Qt.AlignmentFlag.AlignLeft, f"// {self._tag} //")
 
 
@@ -359,9 +370,22 @@ class HudCanvas(QWidget):
         self._face_px: QPixmap | None = None
         self._load_face(face_path)
 
+        self._font_scale = 1.0
+        self._zoom_overlay_text = ""
+        self._zoom_overlay_alpha = 0.0
+
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
         self._tmr.start(16)
+
+    def set_zoom_factor(self, factor: float):
+        self._font_scale = factor
+        self.update()
+
+    def show_zoom_indicator(self, text: str):
+        self._zoom_overlay_text = text
+        self._zoom_overlay_alpha = 1.0
+        self.update()
 
     def _load_face(self, path: str):
         try:
@@ -437,6 +461,10 @@ class HudCanvas(QWidget):
             self._lock_anim = max(0.0, self._lock_anim - 0.015)
             if self._lock_anim == 0:
                 self._lock_pos = None
+
+        # Zoom notification overlay decay
+        if getattr(self, "_zoom_overlay_alpha", 0.0) > 0:
+            self._zoom_overlay_alpha = max(0.0, self._zoom_overlay_alpha - 0.02)
 
         fw  = min(W, H)
         lim = fw * 0.72
@@ -633,7 +661,8 @@ class HudCanvas(QWidget):
                 p.drawEllipse(QRectF(cx + fg_dx - r2, cy + fg_dy - r2, r2 * 2, r2 * 2))
 
             p.setPen(QPen(qcol(C.WHITE, 250), 1))
-            p.setFont(QFont("Courier New", 14, QFont.Weight.Bold))
+            name_pt = max(8, int(round(14 * getattr(self, "_font_scale", 1.0))))
+            p.setFont(QFont("Courier New", name_pt, QFont.Weight.Bold))
             p.drawText(QRectF(cx + fg_dx - 90, cy + fg_dy - 12, 180, 24),
                        Qt.AlignmentFlag.AlignCenter, self._assistant_name)
 
@@ -654,7 +683,8 @@ class HudCanvas(QWidget):
             p.setPen(QPen(qcol(C.RED, l_alpha), 2))
             p.drawEllipse(QRectF(lx - l_rad, ly - l_rad, l_rad * 2, l_rad * 2))
 
-            p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            l_pt = max(6, int(round(7 * getattr(self, "_font_scale", 1.0))))
+            p.setFont(QFont("Courier New", l_pt, QFont.Weight.Bold))
             p.setPen(QPen(qcol(C.RED, l_alpha), 1))
             p.drawText(QRectF(lx + l_rad + 6, ly - 8, 180, 16),
                        Qt.AlignmentFlag.AlignLeft, "TARGET ACQUIRED // DIST: 14.8M")
@@ -678,12 +708,28 @@ class HudCanvas(QWidget):
             sym = "●" if self._blink else "○"
             txt, col = f"{sym}  {self.state}", qcol(C.PRI)
 
-        bw, bh = 220, 24
+        bw = max(220, int(round(220 * max(1.0, getattr(self, "_font_scale", 1.0)))))
+        bh = max(24, int(round(24 * max(1.0, getattr(self, "_font_scale", 1.0)))))
         p.setBrush(QBrush(qcol(C.PANEL2, 230)))
         p.setPen(QPen(col, 1))
         p.drawRoundedRect(QRectF(cx + fg_dx - bw / 2, sy, bw, bh), 4, 4)
-        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        b_pt = max(7, int(round(9 * getattr(self, "_font_scale", 1.0))))
+        p.setFont(QFont("Courier New", b_pt, QFont.Weight.Bold))
         p.drawText(QRectF(cx + fg_dx - bw / 2, sy, bw, bh), Qt.AlignmentFlag.AlignCenter, txt)
+
+        # ── Futuristic Zoom Overlay Pill ──────────────────────────────────────
+        if getattr(self, "_zoom_overlay_alpha", 0.0) > 0 and getattr(self, "_zoom_overlay_text", ""):
+            z_alpha = int(255 * min(1.0, self._zoom_overlay_alpha))
+            p.save()
+            ow, oh = 180, 30
+            ox, oy = (W - ow) / 2, 16
+            p.setBrush(QBrush(QColor(8, 0, 18, min(240, int(z_alpha * 0.95)))))
+            p.setPen(QPen(qcol(C.CYAN, z_alpha), 1.5))
+            p.drawRoundedRect(QRectF(ox, oy, ow, oh), 6, 6)
+            p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+            p.setPen(QPen(qcol(C.WHITE, z_alpha), 1))
+            p.drawText(QRectF(ox, oy, ow, oh), Qt.AlignmentFlag.AlignCenter, self._zoom_overlay_text)
+            p.restore()
 
         # ── CRT Holographic Scanlines ─────────────────────────────────────────
         p.setPen(QPen(qcol(C.CYAN, 18), 1))
@@ -703,8 +749,14 @@ class SegmentedMetricBar(QWidget):
         self._color = color
         self._value = 0.0
         self._text  = "--"
+        self._font_scale = 1.0
         self.setFixedHeight(42)
         self.setMinimumWidth(90)
+
+    def set_zoom_factor(self, factor: float):
+        self._font_scale = factor
+        self.setFixedHeight(max(38, int(round(42 * min(1.25, factor)))))
+        self.update()
 
     def set_value(self, pct: float, text: str):
         self._value = max(0.0, min(100.0, pct))
@@ -720,9 +772,10 @@ class SegmentedMetricBar(QWidget):
         p.setPen(QPen(qcol(C.BORDER), 1))
         p.drawRoundedRect(QRectF(1, 1, W - 2, H - 2), 4, 4)
 
-        p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        lbl_pt = max(6, int(round(7 * getattr(self, "_font_scale", 1.0))))
+        p.setFont(QFont("Courier New", lbl_pt, QFont.Weight.Bold))
         p.setPen(QPen(qcol(C.TEXT_DIM), 1))
-        p.drawText(QRectF(8, 4, 60, 14), Qt.AlignmentFlag.AlignLeft, self._label)
+        p.drawText(QRectF(8, 4, 75, 14), Qt.AlignmentFlag.AlignLeft, self._label)
 
         if self._value > 85:
             val_col = qcol(C.RED)
@@ -731,7 +784,8 @@ class SegmentedMetricBar(QWidget):
         else:
             val_col = qcol(self._color)
 
-        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        val_pt = max(7, int(round(9 * getattr(self, "_font_scale", 1.0))))
+        p.setFont(QFont("Courier New", val_pt, QFont.Weight.Bold))
         p.setPen(QPen(val_col if self._text != "--" else qcol(C.TEXT_DIM), 1))
         p.drawText(QRectF(0, 4, W - 8, 14), Qt.AlignmentFlag.AlignRight, self._text)
 
@@ -763,7 +817,15 @@ class LogWidget(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setReadOnly(True)
+        self._font_scale = 1.0
         self.setFont(QFont("Courier New", 9))
+
+    def set_zoom_factor(self, factor: float):
+        self._font_scale = factor
+        pt = max(6, int(round(9 * factor)))
+        f = QFont("Courier New", pt)
+        self.setFont(f)
+        self.document().setDefaultFont(f)
         self.setStyleSheet(f"""
             QTextEdit {{
                 background: {C.DARK};
@@ -850,6 +912,7 @@ class FileDropZone(QWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._font_scale = 1.0
         self.setFixedHeight(84)
         self._current_files: list[str] = []
         self._hovering  = False
@@ -859,6 +922,11 @@ class FileDropZone(QWidget):
         self._anim_tmr = QTimer(self)
         self._anim_tmr.timeout.connect(self._animate)
         self._anim_tmr.start(40)
+
+    def set_zoom_factor(self, factor: float):
+        self._font_scale = factor
+        self.setFixedHeight(max(70, int(round(84 * min(1.25, factor)))))
+        self.update()
 
     def _animate(self):
         self._dash_offset = (self._dash_offset + 0.8) % 20
@@ -940,27 +1008,28 @@ class FileDropZone(QWidget):
         p.setPen(pen)
         p.drawRoundedRect(rect, 4, 4)
 
+        scale = getattr(self, "_font_scale", 1.0)
         if self._current_files:
             path = Path(self._current_files[0])
-            p.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+            p.setFont(QFont("Courier New", max(6, int(round(8 * scale))), QFont.Weight.Bold))
             p.setPen(QPen(qcol(C.WHITE), 1))
             name = path.name if len(path.name) <= 28 else path.name[:25] + "..."
             more = f"  +{len(self._current_files) - 1} MORE" if len(self._current_files) > 1 else ""
             p.drawText(QRectF(14, 18, W - 48, 16), Qt.AlignmentFlag.AlignLeft, f"📎 {name}{more}")
 
-            p.setFont(QFont("Courier New", 7))
+            p.setFont(QFont("Courier New", max(6, int(round(7 * scale)))))
             p.setPen(QPen(qcol(C.TEXT_DIM), 1))
             p.drawText(QRectF(14, 38, W - 48, 14), Qt.AlignmentFlag.AlignLeft,
                        f"{len(self._current_files)} FILE{'S' if len(self._current_files) != 1 else ''} ATTACHED · CLICK TO REPLACE")
 
-            p.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+            p.setFont(QFont("Courier New", max(8, int(round(10 * scale))), QFont.Weight.Bold))
             p.setPen(QPen(qcol(C.RED), 1))
             p.drawText(QRectF(W - 28, 0, 24, H), Qt.AlignmentFlag.AlignCenter, "✕")
         else:
-            p.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+            p.setFont(QFont("Courier New", max(6, int(round(8 * scale))), QFont.Weight.Bold))
             p.setPen(QPen(qcol(C.PRI if self._hovering else C.TEXT_MED), 1))
             p.drawText(QRectF(0, 22, W, 16), Qt.AlignmentFlag.AlignCenter, "◈  DROP FILE  /  CLICK TO BROWSE")
-            p.setFont(QFont("Courier New", 7))
+            p.setFont(QFont("Courier New", max(6, int(round(7 * scale)))))
             p.setPen(QPen(qcol(C.TEXT_DIM), 1))
             p.drawText(QRectF(0, 42, W, 14), Qt.AlignmentFlag.AlignCenter, "IMAGES · DOCS · CODE · ARCHIVES")
 
@@ -1169,6 +1238,259 @@ class VoiceOnlyRecorderDialog(QDialog):
         super().closeEvent(event)
 
 
+class ChatHistoryDialog(QDialog):
+    """Tactical Cyberpunk HUD dialog for reviewing, searching, and managing previous chats."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SAM — Previous Chat Transmissions")
+        self.resize(750, 600)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: #080012;
+                border: 2px solid {C.CYAN};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                color: {C.WHITE};
+                background: transparent;
+                font-family: 'Courier New';
+            }}
+            QLineEdit {{
+                background: {C.PANEL2};
+                color: {C.WHITE};
+                border: 1px solid {C.BORDER_A};
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-family: 'Courier New';
+                font-size: 11px;
+            }}
+            QLineEdit:focus {{
+                border-color: {C.CYAN};
+            }}
+            QTextEdit {{
+                background: #05000c;
+                color: {C.WHITE};
+                border: 1px solid {C.BORDER};
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Courier New';
+                font-size: 11px;
+            }}
+            QPushButton {{
+                background: {C.PANEL2};
+                color: {C.CYAN};
+                border: 1px solid {C.BORDER_A};
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-family: 'Courier New';
+                font-size: 10px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI_GHO};
+                border-color: {C.CYAN};
+                color: {C.WHITE};
+            }}
+        """)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+
+        # Header
+        top_row = QHBoxLayout()
+        hdr = QLabel("// PREVIOUS CONVERSATION TRANSMISSIONS //")
+        hdr.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
+        hdr.setStyleSheet(f"color: {C.CYAN};")
+        top_row.addWidget(hdr)
+        top_row.addStretch()
+
+        self._count_lbl = QLabel("0 TRANSMISSIONS")
+        self._count_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._count_lbl.setStyleSheet(f"color: {C.ACC2};")
+        top_row.addWidget(self._count_lbl)
+        lay.addLayout(top_row)
+
+        # Filter row
+        filter_row = QHBoxLayout()
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("🔍 Filter transmissions by query keyword or timestamp...")
+        self._search_input.textChanged.connect(self._apply_filter)
+        filter_row.addWidget(self._search_input, 1)
+
+        refresh_btn = QPushButton("🔄 REFRESH")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.clicked.connect(self._reload_chats)
+        filter_row.addWidget(refresh_btn)
+        lay.addLayout(filter_row)
+
+        # Main viewer (rich HTML format)
+        self._viewer = QTextEdit()
+        self._viewer.setReadOnly(True)
+        lay.addWidget(self._viewer, 1)
+
+        # Bottom actions
+        btn_row = QHBoxLayout()
+        copy_btn = QPushButton("📋 COPY TRANSCRIPT")
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.clicked.connect(self._copy_all)
+        btn_row.addWidget(copy_btn)
+
+        clear_btn = QPushButton("🗑️ CLEAR HISTORY")
+        clear_btn.setStyleSheet(f"color: {C.RED}; border-color: {C.RED};")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.clicked.connect(self._clear_chats)
+        btn_row.addWidget(clear_btn)
+
+        btn_row.addStretch()
+
+        close_btn = QPushButton("✕ CLOSE")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(self.close)
+        btn_row.addWidget(close_btn)
+        lay.addLayout(btn_row)
+
+        self._all_messages = []
+        self._reload_chats()
+
+    def _reload_chats(self):
+        try:
+            from memory.chat_history import load_messages
+            self._all_messages = load_messages(limit=1000)
+        except Exception:
+            self._all_messages = []
+        self._apply_filter(self._search_input.text())
+
+    def _apply_filter(self, query: str = ""):
+        q = (query or "").strip().lower()
+        filtered = [
+            m for m in self._all_messages
+            if not q or q in m.get("content", "").lower() or q in m.get("timestamp", "").lower() or q in m.get("role", "").lower()
+        ]
+        self._count_lbl.setText(f"{len(filtered)} / {len(self._all_messages)} TRANSMISSIONS")
+
+        if not filtered:
+            self._viewer.setHtml("<div style='color:#666; font-family:Courier New; padding:20px; text-align:center;'>// NO TRANSMISSIONS FOUND IN ARCHIVE //</div>")
+            return
+
+        html_parts = []
+        for m in filtered:
+            role = m.get("role", "User").upper()
+            ts = m.get("timestamp", "")
+            content = m.get("content", "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+            if role == "USER":
+                badge_color = "#ffffff"
+                bg_color = "rgba(255, 255, 255, 0.05)"
+                border_color = "rgba(255, 255, 255, 0.2)"
+                title = f"<b style='color:#00ff9d;'>[YOU]</b> <span style='color:#888; font-size:9px;'>{ts}</span>"
+            else:
+                badge_color = "#00f0ff"
+                bg_color = "rgba(0, 240, 255, 0.05)"
+                border_color = "rgba(0, 240, 255, 0.3)"
+                title = f"<b style='color:#00f0ff;'>[SAM]</b> <span style='color:#888; font-size:9px;'>{ts}</span>"
+
+            card = f"""
+            <div style='background:{bg_color}; border-left:3px solid {border_color}; margin-bottom:8px; padding:6px 10px; border-radius:3px;'>
+                <div style='margin-bottom:3px;'>{title}</div>
+                <div style='color:{badge_color}; line-height:1.4;'>{content}</div>
+            </div>
+            """
+            html_parts.append(card)
+
+        self._viewer.setHtml("".join(html_parts))
+        sb = self._viewer.verticalScrollBar()
+        if sb:
+            sb.setValue(sb.maximum())
+
+    def _copy_all(self):
+        text = self._viewer.toPlainText()
+        if text:
+            clipboard = QApplication.clipboard()
+            if clipboard:
+                clipboard.setText(text)
+                self._count_lbl.setText("COPIED TO CLIPBOARD!")
+                QTimer.singleShot(2000, lambda: self._apply_filter(self._search_input.text()))
+
+    def _clear_chats(self):
+        reply = QMessageBox.question(
+            self,
+            "Confirm Archive Purge",
+            "Are you sure you want to purge all stored conversation transcripts from memory?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            from memory.chat_history import clear_history
+            clear_history()
+            self._reload_chats()
+
+
+# ── MacBook & Cross-Platform Zoom Event Filter ────────────────────────────────
+class ZoomEventFilter(QObject):
+    """
+    Captures native MacBook trackpad gestures (pinch-to-zoom, smart-zoom),
+    mouse wheel with Cmd/Ctrl modifier, and zoom keyboard shortcuts (Cmd+/Cmd-).
+    """
+    def __init__(self, window: MainWindow):
+        super().__init__()
+        self._window = window
+        self._last_event_time = 0.0
+
+    def eventFilter(self, obj, ev):
+        try:
+            ev_type = ev.type()
+
+            # 1. Native Gestures (MacBook Trackpad pinch-to-zoom & double-tap)
+            if ev_type == QEvent.Type.NativeGesture:
+                g_type = ev.gestureType()
+                if g_type == Qt.NativeGestureType.ZoomNativeGesture:
+                    val = ev.value()
+                    if abs(val) > 0.002:
+                        self._window.zoom_by_delta(val * 0.75)
+                        return True
+                elif g_type == Qt.NativeGestureType.SmartZoomNativeGesture:
+                    self._window.toggle_smart_zoom()
+                    return True
+
+            # 2. Wheel events with Cmd (Meta) or Ctrl
+            elif ev_type == QEvent.Type.Wheel:
+                mods = ev.modifiers()
+                if mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+                    delta = ev.angleDelta().y()
+                    if delta != 0:
+                        now = time.time()
+                        if now - self._last_event_time > 0.04:
+                            self._last_event_time = now
+                            if delta > 0:
+                                self._window.zoom_in()
+                            else:
+                                self._window.zoom_out()
+                        return True
+
+            # 3. Key press shortcuts with Cmd or Ctrl
+            elif ev_type == QEvent.Type.KeyPress:
+                mods = ev.modifiers()
+                if mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+                    k = ev.key()
+                    t = ev.text()
+                    # Zoom In: Cmd + = or Cmd + + or '+' / '='
+                    if k in (Qt.Key.Key_Equal, Qt.Key.Key_Plus) or t in ("=", "+"):
+                        self._window.zoom_in()
+                        return True
+                    # Zoom Out: Cmd + - or Cmd + _ or '-' / '_'
+                    elif k in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore) or t in ("-", "_"):
+                        self._window.zoom_out()
+                        return True
+                    # Reset Zoom: Cmd + 0 or '0'
+                    elif k == Qt.Key.Key_0 or t == "0":
+                        self._window.zoom_reset()
+                        return True
+        except Exception:
+            pass
+
+        return super().eventFilter(obj, ev)
+
+
 # ── Main Application Window ───────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     _log_sig        = pyqtSignal(str)
@@ -1181,6 +1503,7 @@ class MainWindow(QMainWindow):
     _vscode_sig     = pyqtSignal(str)
     _queue_sig      = pyqtSignal(str)
     _mute_sig       = pyqtSignal(bool)
+    _salutation_sig = pyqtSignal(str, str)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1191,16 +1514,27 @@ class MainWindow(QMainWindow):
         self.on_text_command   = None
         self.on_interrupt      = None
         self.on_wake_trigger   = None
+        self.on_clap_toggle    = None
         self._muted            = False
+        self._chat_history_dialog = None
 
         # 2. Config & Theme
         _cfg = _read_full_config()
+        self._clap_enabled: bool = bool(_cfg.get("clap_to_wake_enabled", True))
         self._assistant_name: str = (_cfg.get("assistant_name") or "SAM").strip()
         _display = self._assistant_name.upper()
 
         _ui_color = (_cfg.get("ui_color") or "").strip()
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
+
+        # 3. Dynamic Zoom Factor (persisted in config)
+        _saved_zoom = _cfg.get("ui_zoom", 1.0)
+        try:
+            self._zoom_factor: float = float(_saved_zoom)
+        except (ValueError, TypeError):
+            self._zoom_factor = 1.0
+        self._zoom_factor = max(0.70, min(2.40, self._zoom_factor))
 
         self.setWindowTitle(f"{_display} — MARK XLIX // CYBER CORE")
         self.setMinimumSize(_MIN_W, _MIN_H)
@@ -1276,6 +1610,7 @@ class MainWindow(QMainWindow):
         self._vscode_sig.connect(self._on_vscode_status)
         self._queue_sig.connect(self._on_queue_add)
         self._mute_sig.connect(self.set_muted)
+        self._salutation_sig.connect(self._on_salutation_change)
 
         # Shortcuts (supports F4/F5 and Option+F4/Option+F5 on Mac)
         QShortcut(QKeySequence("F4"), self).activated.connect(self._toggle_mute)
@@ -1285,6 +1620,36 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("F11"), self).activated.connect(self._toggle_fullscreen)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._do_interrupt)
 
+        # Zoom Shortcuts (Command + / Command - / Command 0 and cross-platform Ctrl)
+        for seq_str in [
+            "Ctrl+=", "Ctrl++", "Meta+=", "Meta++",
+            "Ctrl+-", "Ctrl+_", "Meta+-", "Meta+_",
+            "Ctrl+0", "Meta+0",
+        ]:
+            try:
+                sc = QShortcut(QKeySequence(seq_str), self)
+                sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+                if "-" in seq_str or "_" in seq_str:
+                    sc.activated.connect(self.zoom_out)
+                elif "0" in seq_str:
+                    sc.activated.connect(self.zoom_reset)
+                else:
+                    sc.activated.connect(self.zoom_in)
+            except Exception:
+                pass
+
+        # Global event filter for native gestures and Cmd+Wheel
+        self._zoom_filter = ZoomEventFilter(self)
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.installEventFilter(self._zoom_filter)
+
+        self._zoom_log_timer = QTimer(self)
+        self._zoom_log_timer.setSingleShot(True)
+        self._zoom_log_timer.timeout.connect(self._log_zoom_change)
+
+        self._apply_zoom()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if getattr(self, '_quick_drawer', None) and self._quick_drawer.isVisible():
@@ -1292,6 +1657,7 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         w = QWidget()
+        self._header_widget = w
         w.setFixedHeight(54)
         w.setStyleSheet(f"background: {C.DARK}; border-bottom: 1px solid {C.BORDER_B};")
         lay = QHBoxLayout(w)
@@ -1311,6 +1677,20 @@ class MainWindow(QMainWindow):
         self._drawer_btn.clicked.connect(self._toggle_drawer)
         lay.addWidget(self._drawer_btn)
 
+        self._chats_btn = QPushButton("📜 CHATS")
+        self._chats_btn.setFixedHeight(28)
+        self._chats_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._chats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._chats_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.WHITE};
+                border: 1px solid {C.BORDER_A}; border-radius: 4px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.CYAN}; color: {C.CYAN}; }}
+        """)
+        self._chats_btn.clicked.connect(self.show_chat_history)
+        lay.addWidget(self._chats_btn)
+
         demo_btn = QPushButton("▶ SIMULATE HUD")
         demo_btn.setFixedHeight(28)
         demo_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
@@ -1323,6 +1703,7 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.ACC2}; }}
         """)
         demo_btn.clicked.connect(self._cycle_demo_state)
+        self._demo_btn = demo_btn
         lay.addWidget(demo_btn)
 
         lay.addStretch()
@@ -1387,8 +1768,11 @@ class MainWindow(QMainWindow):
         self._bar_tmp = SegmentedMetricBar("THERMAL",  "#ff0055")
         self._bar_mic = SegmentedMetricBar("MIC GAIN", C.CYAN)
 
-        for bar in [self._bar_cpu, self._bar_mem, self._bar_net,
-                    self._bar_gpu, self._bar_tmp, self._bar_mic]:
+        self._metric_bars = [
+            self._bar_cpu, self._bar_mem, self._bar_net,
+            self._bar_gpu, self._bar_tmp, self._bar_mic
+        ]
+        for bar in self._metric_bars:
             lay.addWidget(bar)
 
         lay.addSpacing(6)
@@ -1542,6 +1926,7 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.WHITE}; }}
         """)
         send.clicked.connect(self._send)
+        self._send_btn = send
         row.addWidget(send)
         return row
 
@@ -1573,6 +1958,7 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{ color: {C.WHITE}; border-color: {C.CYAN}; }}
         """)
         dismiss.clicked.connect(w.hide)
+        self._content_dismiss_btn = dismiss
         hdr.addWidget(dismiss)
         lay.addLayout(hdr)
 
@@ -1633,7 +2019,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._address_custom)
         self._address_choice.currentTextChanged.connect(self._address_choice_changed)
         self._address_custom.textChanged.connect(lambda _text: self._save_address_preference())
-        self._address_choice.currentTextChanged.connect(lambda _text: self._save_address_preference())
 
         # 5 Instant Sci-Fi Presets
         presets = [
@@ -1660,6 +2045,69 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(lambda _, h=hex_col: self._apply_theme_preset(h))
             lay.addWidget(btn)
 
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {C.BORDER};"); lay.addWidget(sep2)
+
+        zoom_hdr = QLabel("// INTERFACE ZOOM //")
+        zoom_hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        zoom_hdr.setStyleSheet(f"color: {C.CYAN}; background: transparent; border: 0;")
+        lay.addWidget(zoom_hdr)
+
+        zoom_row = QHBoxLayout()
+        zoom_row.setSpacing(6)
+
+        self._drawer_zoom_out_btn = QPushButton("－ ZOOM OUT")
+        self._drawer_zoom_out_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._drawer_zoom_out_btn.setFixedHeight(26)
+        self._drawer_zoom_out_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._drawer_zoom_out_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 6px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; color: {C.CYAN}; border-color: {C.CYAN}; }}
+        """)
+        self._drawer_zoom_out_btn.clicked.connect(self.zoom_out)
+
+        pct = int(round(self._zoom_factor * 100))
+        self._drawer_zoom_lbl = QLabel(f"{pct}%")
+        self._drawer_zoom_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._drawer_zoom_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._drawer_zoom_lbl.setStyleSheet(f"color: {C.CYAN}; background: transparent; border: 0;")
+
+        self._drawer_zoom_in_btn = QPushButton("＋ ZOOM IN")
+        self._drawer_zoom_in_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._drawer_zoom_in_btn.setFixedHeight(26)
+        self._drawer_zoom_in_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._drawer_zoom_in_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 6px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; color: {C.CYAN}; border-color: {C.CYAN}; }}
+        """)
+        self._drawer_zoom_in_btn.clicked.connect(self.zoom_in)
+
+        zoom_row.addWidget(self._drawer_zoom_out_btn)
+        zoom_row.addWidget(self._drawer_zoom_lbl)
+        zoom_row.addWidget(self._drawer_zoom_in_btn)
+        lay.addLayout(zoom_row)
+
+        self._drawer_zoom_reset_btn = QPushButton("↺  RESET ZOOM  [⌘0]")
+        self._drawer_zoom_reset_btn.setFont(QFont("Courier New", 8))
+        self._drawer_zoom_reset_btn.setFixedHeight(26)
+        self._drawer_zoom_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._drawer_zoom_reset_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 3px;
+                text-align: left; padding: 0 8px;
+            }}
+            QPushButton:hover {{ color: {C.WHITE}; border-color: {C.CYAN}; }}
+        """)
+        self._drawer_zoom_reset_btn.clicked.connect(self.zoom_reset)
+        lay.addWidget(self._drawer_zoom_reset_btn)
+
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER};"); lay.addWidget(sep)
 
@@ -1677,26 +2125,121 @@ class MainWindow(QMainWindow):
         fs_btn.clicked.connect(self._toggle_fullscreen)
         lay.addWidget(fs_btn)
 
+        sep_wake = QFrame(); sep_wake.setFrameShape(QFrame.Shape.HLine)
+        sep_wake.setStyleSheet(f"color: {C.BORDER};"); lay.addWidget(sep_wake)
+
+        wake_hdr = QLabel("// WAKE SENSORS & ARCHIVE //")
+        wake_hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        wake_hdr.setStyleSheet(f"color: {C.CYAN}; background: transparent; border: 0;")
+        lay.addWidget(wake_hdr)
+
+        self._clap_toggle_btn = QPushButton()
+        self._clap_toggle_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._clap_toggle_btn.setFixedHeight(28)
+        self._clap_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_clap_btn_style()
+        self._clap_toggle_btn.clicked.connect(self._toggle_clap_wake)
+        lay.addWidget(self._clap_toggle_btn)
+
+        chats_drawer_btn = QPushButton("📜 PREVIOUS CHATS ARCHIVE")
+        chats_drawer_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        chats_drawer_btn.setFixedHeight(28)
+        chats_drawer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        chats_drawer_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.CYAN};
+                border: 1px solid {C.BORDER_A}; border-radius: 3px;
+                text-align: left; padding: 0 8px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; color: {C.WHITE}; border-color: {C.CYAN}; }}
+        """)
+        chats_drawer_btn.clicked.connect(self.show_chat_history)
+        lay.addWidget(chats_drawer_btn)
+
         return w
 
     def _address_choice_changed(self, choice: str):
         self._address_custom.setVisible(choice == "Other")
+        self._save_address_preference()
 
     def _save_address_preference(self):
         try:
             config = _read_full_config()
-            config["salutation"] = self._address_choice.currentText()
-            config["other_name"] = self._address_custom.text().strip()[:80]
+            sal = self._address_choice.currentText()
+            other = self._address_custom.text().strip()[:80]
+            config["salutation"] = sal
+            config["other_name"] = other
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             temp_file = API_FILE.with_suffix(".tmp")
             temp_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
             temp_file.replace(API_FILE)
+            addr = (other if other else "friend") if sal == "Other" else sal
+            self._log.append_log(f"SYS: Salutation instantaneously updated to '{addr}'.")
         except Exception as exc:
             self._log.append_log(f"SYS: Could not save address preference: {exc}")
 
+    def _on_salutation_change(self, salutation: str, other_name: str):
+        if salutation in ("Sir", "Ma'am", "Other"):
+            self._address_choice.blockSignals(True)
+            self._address_choice.setCurrentText(salutation)
+            self._address_choice.blockSignals(False)
+            self._address_custom.setVisible(salutation == "Other")
+        if other_name:
+            self._address_custom.blockSignals(True)
+            self._address_custom.setText(other_name)
+            self._address_custom.blockSignals(False)
+        self._save_address_preference()
+
     def form_of_address(self) -> str:
-        choice = self._address_choice.currentText()
-        return (self._address_custom.text().strip() or "you") if choice == "Other" else choice
+        try:
+            choice = self._address_choice.currentText()
+            if choice == "Other":
+                custom = self._address_custom.text().strip()
+                return custom if custom else "friend"
+            return choice if choice in ("Sir", "Ma'am") else "Sir"
+        except Exception:
+            from core.llm_client import get_salutation
+            return get_salutation()
+
+    def _update_clap_btn_style(self):
+        col = C.GREEN if getattr(self, "_clap_enabled", True) else C.TEXT_DIM
+        status_txt = "ACTIVE" if getattr(self, "_clap_enabled", True) else "MUTED"
+        if hasattr(self, "_clap_toggle_btn") and self._clap_toggle_btn:
+            self._clap_toggle_btn.setText(f"👏 CLAP TO WAKE: {status_txt}")
+            self._clap_toggle_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {C.PANEL2}; color: {col};
+                    border: 1px solid {col}; border-radius: 3px;
+                    text-align: left; padding: 0 8px;
+                }}
+                QPushButton:hover {{ background: {C.PRI_GHO}; color: {C.WHITE}; }}
+            """)
+
+    def _toggle_clap_wake(self):
+        self._clap_enabled = not getattr(self, "_clap_enabled", True)
+        self._update_clap_btn_style()
+        try:
+            config = _read_full_config()
+            config["clap_to_wake_enabled"] = self._clap_enabled
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            temp_file = API_FILE.with_suffix(".tmp")
+            temp_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            temp_file.replace(API_FILE)
+            state_str = "ACTIVATED" if self._clap_enabled else "MUTED"
+            self._log.append_log(f"SYS: Clap-to-wake sensor {state_str}.")
+        except Exception as exc:
+            self._log.append_log(f"SYS: Could not save clap preference: {exc}")
+        if hasattr(self, "on_clap_toggle") and callable(self.on_clap_toggle):
+            self.on_clap_toggle(self._clap_enabled)
+
+    def show_chat_history(self):
+        if not hasattr(self, "_chat_history_dialog") or self._chat_history_dialog is None:
+            self._chat_history_dialog = ChatHistoryDialog(self)
+        else:
+            self._chat_history_dialog._reload_chats()
+        self._chat_history_dialog.show()
+        self._chat_history_dialog.raise_()
+        self._chat_history_dialog.activateWindow()
 
     def _apply_theme_preset(self, hex_color: str):
         old = current_palette()
@@ -1714,10 +2257,12 @@ class MainWindow(QMainWindow):
                 self._quick_drawer.raise_()
 
     def _position_quick_drawer(self):
-        if hasattr(self, '_quick_drawer'):
-            self._quick_drawer.setFixedWidth(230)
+        if hasattr(self, '_quick_drawer') and self._quick_drawer:
+            dw = max(240, int(round(240 * min(1.25, self._zoom_factor))))
+            self._quick_drawer.setFixedWidth(dw)
             self._quick_drawer.adjustSize()
-            self._quick_drawer.setGeometry(18, 56, 230, self._quick_drawer.sizeHint().height())
+            top = (self._header_widget.height() + 2) if hasattr(self, "_header_widget") else 56
+            self._quick_drawer.setGeometry(18, top, dw, self._quick_drawer.sizeHint().height())
 
     def _build_footer(self) -> QWidget:
         w = QWidget()
@@ -1725,16 +2270,195 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(f"background: {C.DARK}; border-top: 1px solid {C.BORDER};")
         lay = QHBoxLayout(w)
         lay.setContentsMargins(14, 0, 14, 0)
-        lbl = QLabel("[F4] Mute Audio  ·  [F11] Fullscreen  ·  [ESC] Interrupt  ·  [CLICK HUD] Target Reticle")
+        pct = int(round(self._zoom_factor * 100))
+        lbl = QLabel(f"[F4] Mute Audio  ·  [F11] Fullscreen  ·  [⌘+/⌘-] Zoom ({pct}%)  ·  [ESC] Interrupt  ·  [CLICK HUD] Reticle")
         lbl.setFont(QFont("Courier New", 7))
         lbl.setStyleSheet(f"color: {C.TEXT_DIM};")
+        self._footer_lbl = lbl
         lay.addWidget(lbl)
         lay.addStretch()
         tag = QLabel("MARK XLIX // CYBERNETIC MATRIX")
         tag.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
         tag.setStyleSheet(f"color: {C.CYAN};")
+        self._footer_tag = tag
         lay.addWidget(tag)
+        self._footer_widget = w
         return w
+
+    # ── Dynamic Font & UI Zoom Controls ──────────────────────────────────────────
+    def zoom_in(self):
+        self.set_zoom_factor(self._zoom_factor + 0.10)
+
+    def zoom_out(self):
+        self.set_zoom_factor(self._zoom_factor - 0.10)
+
+    def zoom_reset(self):
+        self.set_zoom_factor(1.0)
+
+    def zoom_by_delta(self, delta: float):
+        self.set_zoom_factor(self._zoom_factor + delta)
+
+    def toggle_smart_zoom(self):
+        if abs(self._zoom_factor - 1.0) < 0.05:
+            self.set_zoom_factor(1.30)
+        else:
+            self.set_zoom_factor(1.0)
+
+    def set_zoom_factor(self, factor: float):
+        factor = max(0.70, min(2.40, round(factor, 2)))
+        if abs(factor - self._zoom_factor) < 0.005:
+            return
+        self._zoom_factor = factor
+        self._apply_zoom()
+        pct = int(round(self._zoom_factor * 100))
+        if hasattr(self, "hud"):
+            self.hud.show_zoom_indicator(f"ZOOM // {pct}%")
+        self._save_zoom_preference()
+        if hasattr(self, "_zoom_log_timer"):
+            self._zoom_log_timer.start(450)
+
+    def _log_zoom_change(self):
+        pct = int(round(self._zoom_factor * 100))
+        pt = max(6, int(round(9 * self._zoom_factor)))
+        self._log.append_log(f"SYS: Interface zoom scaled to {pct}% (Font size: {pt}pt)")
+
+    def _save_zoom_preference(self):
+        try:
+            config = _read_full_config()
+            config["ui_zoom"] = round(self._zoom_factor, 2)
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            temp_file = API_FILE.with_suffix(".tmp")
+            temp_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            temp_file.replace(API_FILE)
+        except Exception:
+            pass
+
+    def _apply_zoom(self):
+        factor = self._zoom_factor
+        def _f(pt: int, bold: bool = False) -> QFont:
+            size = max(6, int(round(pt * factor)))
+            return QFont("Courier New", size, QFont.Weight.Bold if bold else QFont.Weight.Normal)
+
+        # 1. Main activity log terminal
+        if hasattr(self, "_log"):
+            if hasattr(self._log, "set_zoom_factor"):
+                self._log.set_zoom_factor(factor)
+            else:
+                f = _f(9)
+                self._log.setFont(f)
+                self._log.document().setDefaultFont(f)
+
+        # 2. Queue log
+        if hasattr(self, "_queue_log"):
+            q_font = _f(7)
+            self._queue_log.setFont(q_font)
+            self._queue_log.document().setDefaultFont(q_font)
+            self._queue_log.setFixedHeight(max(54, int(round(64 * min(1.35, factor)))))
+
+        # 3. Content briefing panel
+        if hasattr(self, "_content_display"):
+            c_font = _f(8)
+            self._content_display.setFont(c_font)
+            self._content_display.document().setDefaultFont(c_font)
+        if hasattr(self, "_content_title_lbl"):
+            self._content_title_lbl.setFont(_f(8, True))
+        if hasattr(self, "_content_dismiss_btn"):
+            self._content_dismiss_btn.setFont(_f(7))
+
+        # 4. Command Input Row
+        if hasattr(self, "_input"):
+            self._input.setFont(_f(9))
+            self._input.setFixedHeight(max(32, int(round(32 * min(1.3, factor)))))
+        if hasattr(self, "_send_btn"):
+            self._send_btn.setFont(_f(12, True))
+            h = self._input.height() if hasattr(self, "_input") else 32
+            self._send_btn.setFixedSize(h, h)
+
+        # 5. Right panel action buttons
+        for btn, base_h in [
+            (getattr(self, "_interrupt_btn", None), 32),
+            (getattr(self, "_mute_btn", None), 30),
+            (getattr(self, "_camera_btn", None), 30),
+            (getattr(self, "_voice_record_btn", None), 30),
+        ]:
+            if btn:
+                btn.setFont(_f(8, True))
+                btn.setFixedHeight(max(base_h, int(round(base_h * min(1.25, factor)))))
+
+        # 6. Header
+        if hasattr(self, "_header_widget"):
+            self._header_widget.setFixedHeight(max(50, int(round(54 * min(1.25, factor)))))
+        if hasattr(self, "_drawer_btn"):
+            self._drawer_btn.setFont(_f(8, True))
+        if hasattr(self, "_demo_btn"):
+            self._demo_btn.setFont(_f(8, True))
+        if hasattr(self, "_title_lbl"):
+            self._title_lbl.setFont(_f(15, True))
+        if hasattr(self, "_sub_lbl"):
+            self._sub_lbl.setFont(_f(7, True))
+        if hasattr(self, "_clock_lbl"):
+            self._clock_lbl.setFont(_f(13, True))
+        if hasattr(self, "_date_lbl"):
+            self._date_lbl.setFont(_f(7))
+
+        # 7. Left Panel & Badges
+        if hasattr(self, "_uptime_lbl"):
+            self._uptime_lbl.setFont(_f(8, True))
+        if hasattr(self, "_proc_lbl"):
+            self._proc_lbl.setFont(_f(8))
+        for badge in [
+            getattr(self, "_badge_wake", None),
+            getattr(self, "_badge_task", None),
+            getattr(self, "_badge_browser", None),
+            getattr(self, "_badge_vscode", None),
+        ]:
+            if badge:
+                badge.setFont(_f(7, True))
+
+        # 8. Custom components
+        for bar in getattr(self, "_metric_bars", []):
+            if hasattr(bar, "set_zoom_factor"):
+                bar.set_zoom_factor(factor)
+
+        if hasattr(self, "_drop_zone") and hasattr(self._drop_zone, "set_zoom_factor"):
+            self._drop_zone.set_zoom_factor(factor)
+
+        if hasattr(self, "hud") and hasattr(self.hud, "set_zoom_factor"):
+            self.hud.set_zoom_factor(factor)
+
+        if hasattr(self, "_left_panel") and hasattr(self._left_panel, "set_zoom_factor"):
+            self._left_panel.set_zoom_factor(factor)
+        if hasattr(self, "_right_panel") and hasattr(self._right_panel, "set_zoom_factor"):
+            self._right_panel.set_zoom_factor(factor)
+
+        # Scale panel widths gracefully
+        if hasattr(self, "_left_panel"):
+            self._left_panel.setFixedWidth(max(_LEFT_W, int(round(_LEFT_W * (1.0 + (factor - 1.0) * 0.25)))))
+        if hasattr(self, "_right_panel"):
+            self._right_panel.setFixedWidth(max(_RIGHT_W, int(round(_RIGHT_W * (1.0 + (factor - 1.0) * 0.25)))))
+
+        # 9. Footer
+        pct = int(round(factor * 100))
+        if hasattr(self, "_footer_lbl"):
+            self._footer_lbl.setFont(_f(7))
+            self._footer_lbl.setText(f"[F4] Mute Audio  ·  [F11] Fullscreen  ·  [⌘+/⌘-] Zoom ({pct}%)  ·  [ESC] Interrupt  ·  [CLICK HUD] Target")
+        if hasattr(self, "_footer_tag"):
+            self._footer_tag.setFont(_f(7, True))
+        if hasattr(self, "_footer_widget"):
+            self._footer_widget.setFixedHeight(max(22, int(round(22 * min(1.25, factor)))))
+
+        # 10. Quick drawer zoom controls
+        if hasattr(self, "_drawer_zoom_lbl"):
+            self._drawer_zoom_lbl.setText(f"{pct}%")
+            self._drawer_zoom_lbl.setFont(_f(8, True))
+        if hasattr(self, "_drawer_zoom_in_btn"):
+            self._drawer_zoom_in_btn.setFont(_f(8, True))
+        if hasattr(self, "_drawer_zoom_out_btn"):
+            self._drawer_zoom_out_btn.setFont(_f(8, True))
+        if hasattr(self, "_drawer_zoom_reset_btn"):
+            self._drawer_zoom_reset_btn.setFont(_f(8))
+        if hasattr(self, "_position_quick_drawer") and getattr(self, "_quick_drawer", None) and self._quick_drawer.isVisible():
+            self._position_quick_drawer()
 
     def _update_metrics(self):
         snap = _metrics.snapshot()
@@ -1807,7 +2531,10 @@ class MainWindow(QMainWindow):
     def _send(self):
         txt = self._input.text().strip()
         if not txt:
-            return
+            if self._drop_zone.current_files():
+                txt = "Analyze the attached file(s) and explain what is in them."
+            else:
+                return
         self._input.clear()
         self._log.append_log(f"You: {txt}")
         if self.on_text_command:
@@ -1900,6 +2627,15 @@ class SamUI:
 
     def form_of_address(self) -> str:
         return self._win.form_of_address()
+
+    def set_salutation(self, salutation: str, other_name: str = "") -> str:
+        try:
+            from core.llm_client import set_salutation as persist_salutation
+            addr = persist_salutation(salutation, other_name)
+        except Exception:
+            addr = other_name if (salutation == "Other" and other_name) else salutation
+        self._win._salutation_sig.emit(salutation, other_name)
+        return addr
 
     def queue_add(self, line: str):
         self._win._queue_sig.emit(line)

@@ -36,8 +36,12 @@ def _get_base_dir() -> Path:
 
 def _get_api_key() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            return cfg.get("gemini_api_key") or cfg.get("api_key") or ""
+    except Exception:
+        return ""
 
 def _get_gemini_model() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"

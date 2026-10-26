@@ -2,6 +2,8 @@ import time
 import subprocess
 import platform
 import shutil
+import re
+from pathlib import Path
 
 try:
     import psutil
@@ -72,6 +74,20 @@ _APP_ALIASES: dict[str, dict[str, str]] = {
     "steam":              {"Windows": "steam",                   "Darwin": "Steam",                "Linux": "steam"},
     "epic":               {"Windows": "EpicGamesLauncher",       "Darwin": "Epic Games Launcher",  "Linux": "legendary"},
     "epic games":         {"Windows": "EpicGamesLauncher",       "Darwin": "Epic Games Launcher",  "Linux": "legendary"},
+    "antigravity":        {"Windows": "Antigravity IDE",         "Darwin": "Antigravity IDE",      "Linux": "antigravity"},
+    "antigravity ide":    {"Windows": "Antigravity IDE",         "Darwin": "Antigravity IDE",      "Linux": "antigravity"},
+    "cursor":             {"Windows": "Cursor",                  "Darwin": "Cursor",               "Linux": "cursor"},
+    "claude":             {"Windows": "Claude",                  "Darwin": "Claude",               "Linux": "claude"},
+    "docker":             {"Windows": "Docker Desktop",          "Darwin": "Docker",               "Linux": "docker"},
+    "ollama":             {"Windows": "ollama",                  "Darwin": "Ollama",               "Linux": "ollama"},
+    "xcode":              {"Windows": "code",                    "Darwin": "Xcode",                "Linux": "code"},
+    "apple music":        {"Windows": "https://music.apple.com", "Darwin": "Music",                "Linux": "https://music.apple.com"},
+    "music":              {"Windows": "https://music.apple.com", "Darwin": "Music",                "Linux": "https://music.apple.com"},
+    "notes":              {"Windows": "notepad.exe",             "Darwin": "Notes",                "Linux": "gedit"},
+    "reminders":          {"Windows": "ms-to-do:",               "Darwin": "Reminders",            "Linux": "gnome-todo"},
+    "calendar":           {"Windows": "outlookcal:",             "Darwin": "Calendar",             "Linux": "gnome-calendar"},
+    "system settings":    {"Windows": "ms-settings:",            "Darwin": "System Settings",      "Linux": "gnome-control-center"},
+    "github desktop":     {"Windows": "GitHubDesktop",           "Darwin": "GitHub Desktop",       "Linux": "github-desktop"},
 }
 
 
@@ -285,13 +301,83 @@ _OS_LAUNCHERS = {
     "Linux":   _launch_linux,
 }
 
+def play_spotify(song: str, browser: str = "") -> str:
+    """Plays or searches a song on Spotify (desktop app if installed, or Spotify Web fallback)."""
+    import urllib.parse
+    from core.llm_client import get_salutation
+    addr = get_salutation()
+    song_clean = (song or "").strip()
+    if not song_clean:
+        return f"Please specify a song to play on Spotify, {addr}."
+    encoded = urllib.parse.quote_plus(song_clean)
+
+    # Check if native desktop app exists
+    is_installed = False
+    if _SYSTEM == "Darwin":
+        is_installed = bool(_find_installed_mac_app("Spotify"))
+    elif _SYSTEM == "Windows":
+        is_installed = bool(shutil.which("spotify") or (Path.home() / "AppData/Roaming/Spotify/Spotify.exe").exists())
+    else:
+        is_installed = bool(shutil.which("spotify"))
+
+    if is_installed:
+        try:
+            if _SYSTEM == "Darwin":
+                subprocess.Popen(["open", f"spotify:search:{encoded}"])
+            elif _SYSTEM == "Windows":
+                subprocess.Popen(["cmd", "/c", "start", f"spotify:search:{encoded}"], shell=False)
+            else:
+                subprocess.Popen(["spotify", f"spotify:search:{encoded}"])
+            return f"I am opening Spotify right now to play {song_clean} for you, {addr}."
+        except Exception as e:
+            print(f"[open_app] Native Spotify launch error: {e}")
+
+    # Fallback to Spotify Web Player
+    web_url = f"https://open.spotify.com/search/{encoded}"
+    try:
+        if _SYSTEM == "Darwin":
+            if browser and browser.lower() in ("chrome", "google chrome"):
+                subprocess.Popen(["open", "-a", "Google Chrome", web_url])
+            else:
+                subprocess.Popen(["open", web_url])
+        elif _SYSTEM == "Windows":
+            if browser and browser.lower() in ("chrome", "google chrome"):
+                subprocess.Popen(["cmd", "/c", "start", "chrome", web_url], shell=False)
+            else:
+                subprocess.Popen(["cmd", "/c", "start", "", web_url], shell=False)
+        else:
+            subprocess.Popen(["xdg-open", web_url])
+        return f"I am opening Spotify Web right now to play {song_clean} for you, {addr}."
+    except Exception as e:
+        return f"Failed to launch Spotify player: {e}"
+
+
 def open_app(
     parameters=None,
     response=None,
     player=None,
     session_memory=None,
 ) -> str:
-    app_name = (parameters if isinstance(parameters, dict) else {}).get("app_name", "").strip()
+    params = parameters if isinstance(parameters, dict) else {}
+    action = params.get("action", "").lower().strip()
+
+    # Route music playback
+    if action in ("play_spotify", "spotify"):
+        song = params.get("song") or params.get("query") or params.get("name") or params.get("app_name") or ""
+        browser = params.get("browser", "")
+        return play_spotify(song, browser=browser)
+
+    if action in ("play_music", "music"):
+        target = (params.get("target") or "spotify").lower().strip()
+        song = params.get("song") or params.get("query") or params.get("name") or ""
+        browser = params.get("browser", "")
+        if "youtube" in target or "chrome" in target:
+            from actions.youtube_video import youtube_video
+            return youtube_video({"action": "play", "query": song, "browser": browser})
+        return play_spotify(song, browser=browser)
+
+    app_name = params.get("app_name") or params.get("name") or params.get("query") or ""
+    app_name = str(app_name).strip()
 
     if not app_name:
         return "No application name provided."

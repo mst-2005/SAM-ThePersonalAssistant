@@ -73,7 +73,9 @@ def configure_phone(phone_number: str) -> str:
     cfg = _load_config()
     cfg["user_phone_number"] = cleaned
     _save_config(cfg)
-    return f"Phone number successfully saved as {cleaned}, sir. SAM will call this number for project updates and alerts."
+    from core.llm_client import get_salutation
+    addr = get_salutation()
+    return f"Phone number successfully saved as {cleaned}, {addr}. SAM will call this number for project updates and alerts."
 
 
 def call_user_phone(message: str, phone_number: Optional[str] = None) -> str:
@@ -83,10 +85,12 @@ def call_user_phone(message: str, phone_number: Optional[str] = None) -> str:
     """
     cfg = _load_config()
     target_number = phone_number or cfg.get("user_phone_number", "").strip()
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     
     if not target_number:
         return (
-            "No phone number is registered yet, sir. "
+            f"No phone number is registered yet, {addr}. "
             "Please tell me 'save my phone number <your-number>' so I know where to call you."
         )
 
@@ -109,7 +113,7 @@ def call_user_phone(message: str, phone_number: Optional[str] = None) -> str:
                 from_=twilio_from,
                 twiml=twiml
             )
-            return f"Outbound call placed to {target_number} (Call SID: {call.sid}), sir."
+            return f"Outbound call placed to {target_number} (Call SID: {call.sid}), {addr}."
         except Exception as e:
             print(f"[PhoneNotifier] Twilio call failed: {e}")
 
@@ -119,20 +123,20 @@ def call_user_phone(message: str, phone_number: Optional[str] = None) -> str:
         if _OS == "Windows":
             os.startfile(encoded_uri)
             return (
-                f"Calling {target_number} via Windows Phone Link, sir. "
+                f"Calling {target_number} via Windows Phone Link, {addr}. "
                 f"Spoken message queued: '{message}'."
             )
         elif _OS == "Darwin":
             # macOS opens FaceTime / iPhone Cellular Continuity
             subprocess.run(["open", encoded_uri], capture_output=True)
             return (
-                f"Calling {target_number} via iPhone / FaceTime Continuity, sir. "
+                f"Calling {target_number} via iPhone / FaceTime Continuity, {addr}. "
                 f"Reason: '{message}'."
             )
         else:
             # Linux default handler
             subprocess.run(["xdg-open", encoded_uri], capture_output=True)
-            return f"Calling {target_number} via system telephony handler, sir. Message: '{message}'."
+            return f"Calling {target_number} via system telephony handler, {addr}. Message: '{message}'."
     except Exception as call_err:
         return f"Could not initiate native call for {target_number}: {call_err}"
 
@@ -141,9 +145,11 @@ def send_phone_sms(message: str, phone_number: Optional[str] = None) -> str:
     """Sends an SMS or WhatsApp notification to the user's cell phone."""
     cfg = _load_config()
     target_number = phone_number or cfg.get("user_phone_number", "").strip()
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     
     if not target_number:
-        return "No phone number is configured, sir."
+        return f"No phone number is configured, {addr}."
 
     # Try WhatsApp Web / App protocol
     try:
@@ -152,7 +158,7 @@ def send_phone_sms(message: str, phone_number: Optional[str] = None) -> str:
         wa_url = f"https://api.whatsapp.com/send?phone={clean_num}&text={encoded_msg}"
         import webbrowser
         webbrowser.open(wa_url)
-        return f"Update sent to your phone via WhatsApp ({target_number}), sir."
+        return f"Update sent to your phone via WhatsApp ({target_number}), {addr}."
     except Exception as e:
         return f"Could not send phone update: {e}"
 

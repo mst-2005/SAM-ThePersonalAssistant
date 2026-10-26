@@ -281,6 +281,26 @@ def build_project(
         print(f"[DevAgent] Phone notification notice: {phone_err}")
 
     lines.append(f"\n[VERIFICATION]:\n{test_output[:300]}")
+
+    # Step 5: Save project metadata for instant on-screen opening
+    try:
+        last_project_file = Path(__file__).resolve().parent.parent / "config" / "last_project.json"
+        last_project_file.parent.mkdir(parents=True, exist_ok=True)
+        main_py = str(base_path)
+        py_files = [f[0] for f in created_files if f[0].endswith(".py") and not Path(f[0]).name.startswith("test_")]
+        if py_files:
+            main_py = str(base_path / py_files[-1])
+        meta = {
+            "project_name": project_name,
+            "project_dir": str(base_path),
+            "created_files": [f[0] for f in created_files],
+            "main_file": main_py,
+            "timestamp": time.time(),
+        }
+        last_project_file.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    except Exception as save_err:
+        print(f"[DevAgent] Warning saving last project metadata: {save_err}")
+
     return "\n".join(lines)
 
 
@@ -335,13 +355,92 @@ def run_code(path: str = "", command: str = "", cwd: str = "") -> str:
         return f"Execution error: {e}"
 
 
+def open_created_project(parameters: dict = None) -> str:
+    """Opens the most recently created project directory and main file on screen."""
+    last_project_file = Path(__file__).resolve().parent.parent / "config" / "last_project.json"
+    project_dir = None
+    main_file = None
+    project_name = "the created project"
+
+    if last_project_file.exists():
+        try:
+            data = json.loads(last_project_file.read_text(encoding="utf-8"))
+            p_dir = Path(data.get("project_dir", ""))
+            if p_dir.exists():
+                project_dir = p_dir
+                project_name = data.get("project_name", p_dir.name)
+                m_file = Path(data.get("main_file", ""))
+                if m_file.exists():
+                    main_file = m_file
+        except Exception:
+            pass
+
+    # Fallback: scan default Projects folder for most recently modified directory
+    if not project_dir or not project_dir.exists():
+        projects_root = _get_default_projects_dir()
+        if projects_root.exists():
+            dirs = [d for d in projects_root.iterdir() if d.is_dir() and not d.name.startswith(".")]
+            if dirs:
+                dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+                project_dir = dirs[0]
+                project_name = project_dir.name
+
+    from core.llm_client import get_salutation
+    addr = get_salutation()
+
+    if not project_dir or not project_dir.exists():
+        return f"I could not locate any recently built project files on your system, {addr}."
+
+    # Locate the primary python file if not found
+    if not main_file or not main_file.exists():
+        py_files = [f for f in project_dir.rglob("*.py") if not f.name.startswith("test") and f.name != "__init__.py"]
+        if py_files:
+            py_files.sort(key=lambda f: f.stat().st_size, reverse=True)
+            main_file = py_files[0]
+        else:
+            all_py = list(project_dir.rglob("*.py"))
+            if all_py:
+                main_file = all_py[0]
+
+    # Open both folder and primary code file on screen
+    opened_details = []
+    try:
+        if _OS == "Darwin":
+            subprocess.Popen(["open", str(project_dir)])
+            opened_details.append(f"folder '{project_dir.name}'")
+            if main_file and main_file.exists():
+                subprocess.Popen(["open", str(main_file)])
+                opened_details.append(f"file '{main_file.name}'")
+        elif _OS == "Windows":
+            os.startfile(str(project_dir))
+            opened_details.append(f"folder '{project_dir.name}'")
+            if main_file and main_file.exists():
+                os.startfile(str(main_file))
+                opened_details.append(f"file '{main_file.name}'")
+        else:
+            subprocess.Popen(["xdg-open", str(project_dir)])
+            opened_details.append(f"folder '{project_dir.name}'")
+            if main_file and main_file.exists():
+                subprocess.Popen(["xdg-open", str(main_file)])
+                opened_details.append(f"file '{main_file.name}'")
+    except Exception as e:
+        return f"Could not open project files on screen: {e}"
+
+    if main_file:
+        return f"I am opening the {project_name} folder and {main_file.name} on your screen right now, {addr}."
+    return f"I am opening the {project_name} folder on your screen right now, {addr}."
+
+
 def dev_agent(parameters: dict = None, **kwargs) -> str:
     """
     Main entrypoint for SAM dev_agent tool calls.
-    Supports action in ('create_project', 'build_project', 'write_code', 'run_code', 'test_project', 'debug').
+    Supports action in ('create_project', 'build_project', 'open_created_project', 'write_code', 'run_code', 'test_project', 'debug').
     """
     params = parameters if isinstance(parameters, dict) else {}
     action = params.get("action", "build_project").lower().strip()
+
+    if action in ("open_created_project", "open_created", "open_project", "open_last_project", "open_file"):
+        return open_created_project(params)
     
     goal = (
         params.get("goal")

@@ -86,7 +86,9 @@ def _trigger_reminder(reminder_id: str) -> None:
         return
         
     title = target.get("title", "SAM Reminder")
-    message = target.get("message", "Time is up, sir.")
+    from core.llm_client import get_salutation
+    addr = get_salutation()
+    message = target.get("message", f"Time is up, {addr}.")
     
     print(f"\n🔔 [REMINDER TRIGGERED]: {title} — {message}")
     _notify_desktop(title, message)
@@ -176,16 +178,20 @@ def set_reminder(
     delay_sec = int(delay % 60)
     delay_desc = f"{delay_min} minute(s)" if delay_min > 0 else f"{delay_sec} seconds"
     
-    return f"Reminder scheduled for {fire_str} ({delay_desc} from now), sir: '{message}'."
+    from core.llm_client import get_salutation
+    addr = get_salutation()
+    return f"Reminder scheduled for {fire_str} ({delay_desc} from now), {addr}: '{message}'."
 
 
 def list_reminders() -> str:
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     reminders = _load_reminders()
     if not reminders:
-        return "You have no active reminders scheduled, sir."
+        return f"You have no active reminders scheduled, {addr}."
         
     now = datetime.datetime.now()
-    lines = [f"You have {len(reminders)} active reminder(s), sir:\n"]
+    lines = [f"You have {len(reminders)} active reminder(s), {addr}:\n"]
     for r in reminders:
         try:
             target_dt = datetime.datetime.fromisoformat(r["target_time"])
@@ -203,9 +209,11 @@ def list_reminders() -> str:
 
 
 def cancel_reminder(reminder_id: str = "") -> str:
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     reminders = _load_reminders()
     if not reminders:
-        return "No reminders to cancel, sir."
+        return f"No reminders to cancel, {addr}."
         
     if not reminder_id:
         # Cancel all
@@ -213,7 +221,7 @@ def cancel_reminder(reminder_id: str = "") -> str:
             t.cancel()
         _ACTIVE_TIMERS.clear()
         _save_reminders([])
-        return "All scheduled reminders have been cancelled, sir."
+        return f"All scheduled reminders have been cancelled, {addr}."
         
     remaining = []
     found = False
@@ -228,16 +236,18 @@ def cancel_reminder(reminder_id: str = "") -> str:
             
     _save_reminders(remaining)
     if found:
-        return f"Reminder {reminder_id} cancelled, sir."
-    return f"Could not find reminder matching '{reminder_id}', sir."
+        return f"Reminder {reminder_id} cancelled, {addr}."
+    return f"Could not find reminder matching '{reminder_id}', {addr}."
 
 
 def check_time() -> str:
     """Returns the current local time, period of the day, and date formatted for voice response."""
+    from core.llm_client import get_salutation
+    addr = get_salutation()
     now = datetime.datetime.now()
     time_str = now.strftime("%I:%M %p").lstrip("0")
     date_str = now.strftime("%A, %B %d, %Y")
-    return f"The current time is {time_str} on {date_str}, sir."
+    return f"The current time is {time_str} on {date_str}, {addr}."
 
 
 def check_calendar() -> str:

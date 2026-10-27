@@ -59,6 +59,16 @@ Whether you need an assistant to manage your PC files, an empathetic companion t
 - **Playwright Automation**: Navigate websites, search information, manage Gmail inboxes, draft emails, and inspect GitHub PRs/issues using your native browser session.
 - **Parallel News & Grounded Search**: Dual-thread retrieval combining Gemini Grounded Search and live DuckDuckGo feeds.
 
+### 9. 🌐 Encrypted Web Dashboard & Mathematical Formatting (`dashboard/`)
+- **Real-Time Web Interface**: Access SAM from any browser on your local network (mobile, tablet, or secondary PC) with live WebSockets.
+- **Pure CSS Math Typesetting (`math.css`)**: Native, responsive mathematical rendering for fractions, summations with limits, powers, square roots, and LaTeX-style display equations without heavy external JavaScript libraries.
+- **Application-Layer Encryption**: Secured with AES-256-CBC session encryption.
+- **Media & Camera Tools**: Live camera snapshots, video recording with audio, voice memos, and document uploads.
+
+### 10. 🦙 Ollama & Local LLM Offline Fallback (`llm_client`)
+- **Local Model Routing**: Dynamic routing between Google Gemini and local LLMs (Ollama with `deepseek-r1` or `hermes3`, LM Studio, LocalAI) for full offline privacy.
+- **Persistent Chat Archive**: Query, search, or review previous conversations and session summaries with `"what did we discuss earlier?"`
+
 ---
 
 ## 🖥️ PyQt6 Sci-Fi Desktop HUD
@@ -86,10 +96,12 @@ SAM-ThePersonalAssistant/
 │   ├── background_monitor.py   # Long-term task milestone & news monitor
 │   ├── phone_notifier.py       # Cell phone pairing & outbound calling
 │   ├── reminder.py             # Timers, health check-ins, & OS notifications
+│   ├── emotional_support.py    # Empathy, stress-relief, & wellness check-ins
+│   ├── chat_history.py         # Previous chats querying & search archive
 │   ├── system_status.py        # Hardware telemetry (CPU, RAM, GPU, Disk, Battery)
 │   ├── system_monitor.py       # Background hardware threshold watcher
 │   ├── file_controller.py      # Deep file system reading, writing, & searching
-│   ├── file_processor.py       # Document parsing (PDF, DOCX, PPTX)
+│   ├── file_processor.py       # Document parsing (PDF, DOCX, PPTX, XLSX)
 │   ├── computer_settings.py    # Volume, brightness, WiFi, & power management
 │   ├── computer_control.py     # Windows control, keystrokes, & shortcuts
 │   ├── screen_processor.py     # Multimodal screen & webcam vision
@@ -100,10 +112,17 @@ SAM-ThePersonalAssistant/
 │   ├── weather_report.py       # Live weather updates
 │   ├── youtube_video.py        # Voice-controlled YouTube playback
 │   └── game_updater.py         # Steam & Epic Games update checker
+├── dashboard/                  # Encrypted web dashboard & assets
+│   ├── server.py               # FastAPI & WebSockets local dashboard server
+│   └── static/
+│       ├── app.html            # Real-time web companion application
+│       ├── login.html          # Session login & AES authorization
+│       ├── math.css            # Pure CSS mathematical typesetting system
+│       └── crypto-js.min.js    # Client-side AES encryption library
 ├── core/                       # Cognitive foundations
 │   ├── brain_router.py         # Fast tool routing & LLM dispatch
 │   ├── intent_analyzer.py      # Zero-latency local regex intent engine
-│   ├── llm_client.py           # Gemini 2.5 / 3.5 & local model client
+│   ├── llm_client.py           # Gemini & local Ollama / LM Studio client
 │   ├── stt.py                  # Faster-Whisper on-device speech-to-text
 │   ├── tts.py                  # Neural text-to-speech player
 │   └── prompt.txt              # SAM core protocol & identity directives
@@ -173,7 +192,7 @@ SAM-ThePersonalAssistant/
    ```
 
 6. **Launch SAM**:
-   - Double-click [`run_sam.bat`](file:///c:/Users/comma/OneDrive/Desktop/SAM-ThePersonalAssistant-main/SAM-ThePersonalAssistant-main/run_sam.bat) or run:
+   - Double-click [`run_sam.bat`](run_sam.bat) or run:
    ```bash
    python main.py
    ```

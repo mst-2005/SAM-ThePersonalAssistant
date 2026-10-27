@@ -16,7 +16,11 @@ mss==10.2.0
 psutil==7.2.2
 send2trash==2.1.0
 youtube-transcript-api==1.2.4
+pypdf==6.21.2
+python-docx==1.2.0
 python-pptx==1.0.2
+pandas==3.1.0
+openpyxl==3.1.5
 fastapi==0.141.1
 uvicorn[standard]==0.52.3
 cryptography==46.0.6
@@ -27,6 +31,7 @@ miniaudio>=1.71
 # Hybrid voice pipeline (Phase 2) — wake word, offline STT confirmation, TTS
 openwakeword==0.4.0
 faster-whisper==1.2.1
+edge-tts==7.3.1
 piper-tts==1.7.0
 elevenlabs==2.64.0
 

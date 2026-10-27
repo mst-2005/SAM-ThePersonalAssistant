@@ -597,6 +597,13 @@ class DashboardServer:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(_CRYPTOJS_CDN)
 
+        @app.get("/static/math.css")
+        async def serve_math_css():
+            f = STATIC_DIR / "math.css"
+            if f.exists():
+                return FileResponse(str(f), media_type="text/css")
+            return HTMLResponse("", status_code=404)
+
         @app.get("/login", response_class=HTMLResponse)
         async def login_page():
             return HTMLResponse(self._login_html)

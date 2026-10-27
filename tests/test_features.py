@@ -50,8 +50,12 @@ class ClapDetectorTests(unittest.TestCase):
         self.assertIsNone(detector._first_clap)
 
 
+from unittest.mock import patch
+
+
 class LocalLLMConfigTests(unittest.TestCase):
-    def test_ollama_provider_configuration(self):
+    @patch("core.llm_client._load_config", return_value={"llm_provider": "ollama", "llm_url": "http://localhost:11434", "llm_model": "deepseek-r1"})
+    def test_ollama_provider_configuration(self, mock_cfg):
         provider = get_llm_provider()
         self.assertEqual(provider, "ollama")
 

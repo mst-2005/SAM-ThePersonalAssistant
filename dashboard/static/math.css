@@ -1,0 +1,214 @@
+/* ==========================================================================
+   math.css — Pure CSS Mathematical Typesetting
+   ========================================================================== */
+
+/* ── 1. Base Math Typography & Variables ── */
+:root {
+  --math-font: 'STIX Two Math', 'Cambria Math', 'Latin Modern Math',
+               'TeX Gyre Termes Math', 'Times New Roman', serif;
+  --math-line-color: currentColor;
+}
+
+.math,
+.math-display {
+  font-family: var(--math-font);
+  font-feature-settings: "kern" 1, "liga" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Inline math variables (italicized like in LaTeX: x, y, n, s) */
+.math .var,
+.math-display .var {
+  font-style: italic;
+  padding: 0 0.08em;
+}
+
+/* Standalone numbers & operators (upright) */
+.math .num-val,
+.math-display .num-val {
+  font-style: normal;
+}
+
+/* ── 2. Display Equations (Centered Block Math) ── */
+.math-display {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  margin: 1.25rem 0;
+  font-size: 1.25rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}
+
+/* ── 3. Fractions ── */
+.frac {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: -0.65em;
+  text-align: center;
+  padding: 0 0.18em;
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.frac > .num {
+  display: block;
+  border-bottom: 0.08em solid var(--math-line-color);
+  padding-bottom: 0.15em;
+  padding-left: 0.1em;
+  padding-right: 0.1em;
+}
+
+.frac > .den {
+  display: block;
+  padding-top: 0.15em;
+  padding-left: 0.1em;
+  padding-right: 0.1em;
+}
+
+/* Nested fractions: automatically scale down */
+.frac .frac {
+  font-size: 0.8em;
+  vertical-align: -0.55em;
+}
+
+/* ── 4. Large Operators with Limits (∑, ∏, ∫, lim) ── */
+.big-op {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: -0.85em;
+  margin: 0 0.25em;
+  line-height: 1;
+}
+
+.big-op .limit-top {
+  font-size: 0.65em;
+  margin-bottom: 0.12em;
+  line-height: 1;
+}
+
+.big-op .symbol {
+  font-size: 1.65em;
+  line-height: 0.82;
+  font-family: var(--math-font);
+}
+
+.big-op .limit-bot {
+  font-size: 0.65em;
+  margin-top: 0.15em;
+  line-height: 1;
+}
+
+/* Limits without big symbols (like "lim x -> 0") */
+.limit-op {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: -0.65em;
+  margin: 0 0.2em;
+}
+
+.limit-op .op-name {
+  font-size: 0.95em;
+  font-style: normal;
+}
+
+.limit-op .limit-bot {
+  font-size: 0.62em;
+  margin-top: 0.15em;
+}
+
+/* ── 5. Superscripts and Subscripts ── */
+.math sup,
+.math sub,
+.math-display sup,
+.math-display sub {
+  font-size: 0.72em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+.math sup,
+.math-display sup {
+  top: -0.55em;
+}
+
+.math sub,
+.math-display sub {
+  bottom: -0.25em;
+}
+
+/* Paired sub and sup (like x_1^2) */
+.sub-sup {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: -0.25em;
+  line-height: 1;
+  font-size: 0.75em;
+  margin-left: 0.05em;
+}
+
+.sub-sup sup {
+  top: 0;
+  margin-bottom: 0.25em;
+}
+
+.sub-sup sub {
+  bottom: 0;
+}
+
+/* ── 6. Square Roots / Radicals ── */
+.sqrt {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: -0.2em;
+  margin: 0 0.15em;
+}
+
+.sqrt .surd {
+  font-size: 1.25em;
+  line-height: 0.85;
+  margin-right: -0.05em;
+}
+
+.sqrt .radicand {
+  border-top: 0.08em solid var(--math-line-color);
+  padding: 0.1em 0.2em 0;
+  margin-top: 0.18em;
+}
+
+/* ── 7. Delimiters (Parentheses, Brackets, Norms) ── */
+.delim-large {
+  font-size: 1.5em;
+  line-height: 0.9;
+  vertical-align: -0.2em;
+}
+
+/* ── 8. Matrices & Systems of Equations ── */
+.matrix {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0.25em;
+  vertical-align: middle;
+}
+
+.matrix-grid {
+  display: grid;
+  grid-auto-flow: row;
+  gap: 0.35em 0.75em;
+  text-align: center;
+  padding: 0 0.35em;
+}
+
+.matrix-bracket {
+  font-size: 2.2em;
+  line-height: 1;
+  font-weight: 200;
+}

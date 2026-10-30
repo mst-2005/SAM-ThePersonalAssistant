@@ -2,8 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
 # Distribution / packaging
@@ -25,6 +23,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.zip
 
 # Virtual environments
 venv/
@@ -37,8 +36,11 @@ venv.bak/
 # Environment and sensitive configuration
 .env
 .env.*
+!.env.example
 config/api_keys.json
 config/certs/
+*.pem
+*.key
 
 # Logs and runtime databases
 *.log
@@ -52,6 +54,42 @@ memory/reminders.json
 memory/chat_history.json
 projects/
 scratch/
+.sam.pid
+
+# Model weights, checkpoints & large artifacts
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+config/*.onnx
+*.safetensors
+*.h5
+*.tflite
+checkpoints/
+weights/
+models/*.pt
+models/*.pth
+models/*.bin
+models/*.safetensors
+
+# Datasets, recordings & local cache
+data/
+datasets/
+recordings/
+downloads/
+cache/
+.cache/
+*.wav
+*.mp3
+*.mp4
+*.m4a
+
+# Training logs & experiment trackers
+runs/
+wandb/
+lightning_logs/
+events.out.tfevents.*
 
 # OS and Editor files
 .DS_Store
@@ -61,8 +99,3 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
-
-# Wake word and local models (large binaries)
-*.onnx
-config/*.onnx
-.sam.pid
